@@ -1,0 +1,27 @@
+#jenv local configuration
+.java-version
+
+.gradletasknamecache
+.DS_Store
+benchmarks.jar
+bin
+build
+.classpath
+.eclipse
+.gradle
+.project
+.settings
+out
+*.log
+*.iml
+*.iws
+*.ipr
+.idea/
+*.java.hsp
+*.index
+*.data
+classes
+exportToHtml
+.pmd
+.ruleset
+.rulesets
