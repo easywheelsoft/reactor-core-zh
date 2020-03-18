@@ -1,0 +1,47 @@
+[[about-doc]]
+= 关于文档
+:linkattrs:
+本章节简要概述了Reactor参考文档，你不必依次阅读该文档，每个章节都是独立的，尽管它们常链接其它的章节。
+
+[[latest_version_copyright_notice]]
+== 最新版本 & 版权声明
+Reactor参考文档也提供了HTML版本的，最新可用的副本在 https://projectreactor.io/docs/core/release/reference/index.html
+
+无论是电子版还是纸质版的文档，只要你这些副本文档包含了版权声明，且不进行任何的收费，你都可以供自己使用或者分享给他人。
+
+[[contributing_to_the_documentation]]
+== 贡献本文档
+本参考文档是用 https://asciidoctor.org/docs/asciidoc-writers-guide/[Asciidoc] 写的，其源码位于 https://github.com/reactor/reactor-core/tree/master/docs/asciidoc 。
+
+如果你有任何改进或建议，欢迎提交PR。
+
+我们建议你check out源码到本地，便于你运行gradle `asciidoctor` 任务进行文档的构建以及检查渲染效果。有些部分章节依赖于其包含的文件，因此GitHub的渲染并不总是完整的。
+
+ifeval::["{backend}" == "html5"]
+TIP: 为了便于文档编辑，大部分章节在末尾都有一个链接，可以打开一个直接编辑该章节源文件的GitHub界面。这些链接仅在HTML5版本的文档中提供，如下所示：
+link:https://github.com/reactor/reactor-core/edit/master/docs/asciidoc/aboutDoc.adoc[Suggest Edit^, role="fa fa-edit"] to <<about-doc>>.
+endif::[]
+
+[[getting_help]]
+== 获取帮助
+使用Reactor，你可以通过以下几种方式寻求帮助：
+
+* 在 https://gitter.im/reactor/reactor[Gitter] 上与社区取得联系。
+* 在stackoverflow.com https://stackoverflow.com/tags/project-reactor[`project-reactor`] 提问。
+* 在Github issues上提交bug，我们密切关注这些仓库： https://github.com/reactor/reactor-core/issues[reactor-core] （包括核心功能）和 https://github.com/reactor/reactor-addons/issues[reactor-addons]
+（涵盖响应式测试和适配器等问题）。
+
+NOTE: 所有的Reactor项目都是开源的， https://github.com/reactor/reactor-core/tree/master/docs/asciidoc[包括此文档] ，如果你发现此文档存在问题且想改进它，请 https://github.com/reactor/.github/blob/master/CONTRIBUTING.md[参考] 。
+
+[[where_to_go_from_here]]
+== 如何开始
+* 如果你想直接进入编程，前往 <<getting-started>>。
+* 如果你刚接触响应式编程，你可能应该从 <<intro-reactive>> 开始。
+* 如果你比较熟悉Reactor的概念，只是在寻找合适的操作，却想不到相关的操作符，请看附录 <<which-operator>>。
+* 为了更深入地了解Reactor的核心功能，转至 <<core-features>> 进行了解：
+** 更多关于Reactor的响应式类型在 <<flux>> 和 <<mono>> 章节。
+** 怎么使用 <<schedulers,scheduler>> 进行线程上下文切换。
+** 怎么处理错误在 <<error.handling>> 章节。
+* 使用单元测试？在 `reactor-test` 项目是可以做到的！请看 <<testing>>。
+* <<producing>> 章节提供了更多高级的创建响应式源的方式。
+* <<advanced>> 章节涵盖了其它高级主题。
