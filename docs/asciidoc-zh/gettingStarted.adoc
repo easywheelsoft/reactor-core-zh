@@ -1,0 +1,224 @@
+[[getting-started]]
+= 入门
+
+本章节包含的信息有助于你使用Reactor，包含以下部分：
+
+* <<getting-started-introducing-reactor>>
+* <<prerequisites>>
+* <<getting-started-understanding-bom>>
+* <<getting>>
+
+[[getting-started-introducing-reactor]]
+== 介绍Reactor
+
+//TODO flesh out, reword. could also be updated on the website
+Reactor是一个完全非阻塞的JVM响应式编程基础，有着高效的需求管理（背压的形式）。它直接整合Java8的函数式API，尤其是 `CompletableFuture`， `Stream`，还有 `Duration` 。提供了可组合的异步化序列API -- `Flux` (对于 [N] 个元素) and `Mono` (对于 [0|1] 元素) -- 并广泛实现
+https://www.reactive-streams.org/[响应式Stream] 规范。
+
+Reactor还有支持非阻塞进程间通信的 `reactor-netty` 项目，适用于微服务架构，Reactor Netty为HTTP （包括Websockets），TCP和UDP提供了背压机制的网络引擎。完全支持响应式编解码。
+
+[[prerequisites]]
+== 前提
+
+Reactor Core运行在 `Java 8` 及之上。
+
+对于 `org.reactivestreams:reactive-streams:1.0.3` 传递依赖。
+
+[NOTE]
+.Android的支持
+====
+* Reactor3并不针对或正式支持Android（如果有很强的需求，考虑使用RxJava2）。
+* 然而它在Android SDK 26（Android 0）及之上应该可以正常工作。
+* 我们会尽最大的努力去评估有利于支持Android的变化。然而，我们不能确保这一点，必须根据具体的情况作出每个决定。
+====
+
+[[getting-started-understanding-bom]]
+== 理解 BOM
+
+Reactor 3使用BOM（依赖清单）模型（从 `reactor-core 3.0.4` 开始，以及 `Aluminium` 版本链）。
+尽管这些组件之间可能存在版本分歧，但这份精选的组件列表，提供相关的版本，使其在一起能够运行良好。
+
+BOM本身是版本化的，它使用了一个代号和限定符的版本链方案。下面的列表展示了一些样例：
+
+[verse]
+Aluminium-RELEASE
+Californium-BUILD-SNAPSHOT
+Aluminium-SR1
+Bismuth-RELEASE
+Californium-SR32
+
+版本代号表示为传统上的MAJOR.MINOR数字，它们（大部分）来于 https://en.wikipedia.org/wiki/Periodic_table#Overview[元素周期表] ，按照字母顺序递增。
+
+限定符（按照时间为顺序）：
+
+* `BUILD-SNAPSHOT`：为开发和测试而构建的。
+* `M1`..`N`：里程碑或者开发人员预览的。
+* `RELEASE`：代号系列中第一个GA（可用的）版本。
+* `SR1`..`N`：代号系列中随后的GA版本 -- 等同于修复数字。（SR表示“`服务版本`”）
+
+[[getting]]
+== 入门Reactor
+
+正如 <<前面提到的入门理解BOM>>，使用BOM和添加相关的依赖在你的工程中是最简单使用Reactor的方式。请注意，当你添加一个依赖时，你必须忽略版本，以便于从BOM中提取版本。
+
+但是，如果你想强制的使用一个特定版本的组件，你可以像平时一样在添加依赖时指定其版本。你也可以完全放弃BOM，通过组件的版本指定其依赖。
+
+=== Maven上的使用
+
+Maven天然支持BOM的概念。首先你需要通过添加下面的片段到你的 `pom.xml` 来导入BOM。
+
+====
+[source,xml]
+----
+<dependencyManagement> <1>
+    <dependencies>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-bom</artifactId>
+            <version>Bismuth-RELEASE</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+----
+<1> 注意这 `dependencyManagement` 标签，这是除了常规 `dependencies` 的部分。
+====
+
+如果这顶层的选项（`dependencyManagement`）在你的pom中已经存在，仅需要添加内容。
+
+接下来，除了没有 `<version>` 以外，像往常一样，添加你的依赖到相关的reactor工程中，如下所示。
+
+====
+[source,xml]
+----
+<dependencies>
+    <dependency>
+        <groupId>io.projectreactor</groupId>
+        <artifactId>reactor-core</artifactId> <1>
+        <2>
+    </dependency>
+    <dependency>
+        <groupId>io.projectreactor</groupId>
+        <artifactId>reactor-test</artifactId> <3>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+----
+<1> 依赖核心库。
+<2> 没有版本标签。
+<3> `reactor-test` 用作对reactive streams进行单元测试。
+====
+
+=== Gradle上的使用
+
+在Gradle5.0版本以前，没有对Maven BOM的核心支持，但是你可以使用Spring的 https://github.com/spring-gradle-plugins/dependency-management-plugin[gradle依赖管理] 插件。
+
+首先，从Gradle插件入口应用该插件，如下所示：
+
+====
+[source,groovy]
+----
+plugins {
+    id "io.spring.dependency-management" version "1.0.7.RELEASE" <1>
+}
+----
+<1> 在写本文档时，1.0.7.RELEASE是该插件最新的版本。请检查然后更新它。
+====
+
+然后使用它导入BOM，如下所示：
+
+====
+[source,groovy]
+----
+dependencyManagement {
+     imports {
+          mavenBom "io.projectreactor:reactor-bom:Bismuth-RELEASE"
+     }
+}
+----
+====
+
+最后，不添加版本号将依赖添加到你的工程，如下所示：
+
+====
+[source,groovy]
+----
+dependencies {
+     implementation 'io.projectreactor:reactor-core' <1>
+}
+----
+<1> 没有第三个 `:` 为版本分隔的部分，它取值于BOM。
+====
+
+从Gradle 5.0开始，你可以用原生的Gradle来支持BOM。
+
+====
+[source,groovy]
+----
+dependencies {
+     implementation platform('io.projectreactor:reactor-bom:Bismuth-RELEASE')
+     implementation 'io.projectreactor:reactor-core' <1>
+}
+----
+<1> 没有第三个 `:` 为版本分隔的部分，它取值于BOM。
+====
+
+
+=== 里程碑和快照
+
+里程碑和开发者预览的版本是通过Spring里程碑仓库而不是中央仓库进行发布。请使用如下片段，要将其添加到你的构建配置文件中：
+
+.Milestones in Maven
+====
+[source,xml]
+----
+<repositories>
+	<repository>
+		<id>spring-milestones</id>
+		<name>Spring Milestones Repository</name>
+		<url>https://repo.spring.io/milestone</url>
+	</repository>
+</repositories>
+----
+====
+
+对于Gradle，请使用下面的片段：
+
+.Milestones in Gradle
+====
+[source,groovy]
+----
+repositories {
+  maven { url 'https://repo.spring.io/milestone' }
+  mavenCentral()
+}
+----
+====
+
+同样的，快照版本也是在一个单独的专用仓库中可用，如下面的例子所示：
+
+.BUILD-SNAPSHOTs in Maven
+====
+[source,xml]
+----
+<repositories>
+	<repository>
+		<id>spring-snapshots</id>
+		<name>Spring Snapshot Repository</name>
+		<url>https://repo.spring.io/snapshot</url>
+	</repository>
+</repositories>
+----
+====
+
+.BUILD-SNAPSHOTs in Gradle
+====
+[source,groovy]
+----
+repositories {
+  maven { url 'https://repo.spring.io/snapshot' }
+  mavenCentral()
+}
+----
+====
