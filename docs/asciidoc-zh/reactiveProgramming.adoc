@@ -1,0 +1,303 @@
+[[intro-reactive]]
+= 响应式编程介绍
+
+Reactor是响应式编程范式的一种实现，概括如下：
+
+[quote, https://en.wikipedia.org/wiki/Reactive_programming]
+响应式编程是一种涉及数据流和变化传播的异步编程范式。这意味着可以通过编程语言轻松地表示静态（如数组）或动态（如事件发射器）数据流。
+
+作为响应式编程方向上的第一步，Microsoft在.NET生态中创建了响应式(Rx)扩展库。然后RxJava实现了JVM上的响应式编程。随着时间的推移，通过Reactive Streams的努力，一套基于JVM为响应式库定义接口与交互规则的标准规范`Reactive Streams` 出现了。其接口已经集成到了Java9中的 `Flow` 类下。
+
+响应式编程经常作为观察者设计模式的一种扩展在面向对象编程语言中体现。你还可以将响应式流模式和熟悉的迭代器设计模式进行比较，它们的核心库都基于 `Iterable`-`Iterator` 组合。一个主要的区别是，迭代器基于拉的，而响应式流是基于推的。
+
+迭代器是一种命令式编程模式，即使获取值完全取决于 `Iterable`。事实上，这取决于开发者在序列中选择何时调用 `next()`。在响应式流中，上面的组合等价于 `Publisher-Subscriber` 。但当有新的可用的数据到来时，`Publisher` 会对订阅者进行通知，这种推动是响应式的关键。当然，使用推送值的操作应表现为声明式的而不是命令式的：开发者应专注于表达逻辑计算而不是描述确切的流控制。
+
+除了推送数据外，还以明确的覆盖了错误处理和完成方面。`Publisher` 可以推送新的数据到其 `Subscriber`（通过调用 `onNext` ），也可以发送错误（通过调用 `onError`）或者完成（通过调用 `onComplete`）信号。错误和完成信号都会终止序列。可以总结如下：
+
+====
+[source]
+----
+onNext x 0..N [onError | onComplete]
+----
+====
+
+这种方式非常灵活，适用于零个值，一个值或者N个值（包括无限序列，例如持续的时钟滴答声）。
+
+但是首先需要思考的是，我们为什么需要这样的异步响应式库呢？
+
+== 阻塞更浪费资源
+
+现代应用程序有着巨大的并发用户，即使当代的硬件性能已经提升了不少，但是软件的性能依然是一个关键因素。
+
+通常有两种方式来提升应用的性能：
+
+* 使用更多的线程和硬件资源达到*并行化*
+* 在当前使用的资源上*寻求更高效的处理*
+
+通常，Java开发者使用同步方式编程，这种做法在遇到性能瓶颈之前是可行的。当然此时可能会引入更多的线程来运行相同的同步代码。但是像这种资源利用率的扩展，很快会引入竞争和并发的问题。
+
+更糟糕的是，阻塞浪费资源。如果你仔细观察，一旦程序涉及一些延时操作（特别是I/O，例如数据库请求或者网络调用），由于线程（可能有很多线程）等待数据而处于空闲，导致资源的浪费。
+
+因此，并行化并不是银弹。虽然为了充分利用硬件资源是有必要的，但是也带来了复杂性和容易造成资源浪费。
+
+== 异步能拯救？
+
+先前提到的第二种方式，寻求更高的效率，可以解决资源浪费问题。通过编写异步非阻塞的代码，你可以将执行切换到使用了相同底层资源的另一个活动任务，然后在异步处理完成后返回到当前任务。
+
+但是你如何在JVM上编写异步代码？Java提供了两种异步编程模型：
+
+* *Callbacks*：异步方法没有一个返回值，但是它额外的传递了一个 `callback` 参数（lambda或者匿名类），在当结果可返回时调用。熟知的例子就是Swing的 `EventListener` 体系。
+* *Futures*：异步方法 _立即_ 返回一个 `Future<T>`。异步处理计算得到这个 `T` 值，`Future` 对象对获取该值进行了包装，这个对象可以一直轮询直到返回该值。例如，`ExecutorService` 使用 `Future` 对象执行 `Callable<T>` 任务。
+
+这些技术够好？并不适用于每个用例，两种方式都有局限性。
+
+回调难以组合在一起，很容易导致代码难以阅读和维护（著名的地狱回调）。
+
+举个例子：在界面上展示一个用户的最优先的五个喜好，如果都没有，则在界面上进行建议。通过调用三个服务（第一个提供喜好ID，第二个获取喜好详情，第三个提供详情建议），如下所示：
+
+.Example of Callback Hell
+====
+[source,java]
+----
+userService.getFavorites(userId, new Callback<List<String>>() { //<1>
+  public void onSuccess(List<String> list) { //<2>
+    if (list.isEmpty()) { //<3>
+      suggestionService.getSuggestions(new Callback<List<Favorite>>() {
+        public void onSuccess(List<Favorite> list) { //<4>
+          UiUtils.submitOnUiThread(() -> { //<5>
+            list.stream()
+                .limit(5)
+                .forEach(uiList::show); //<6>
+            });
+        }
+
+        public void onError(Throwable error) { //<7>
+          UiUtils.errorPopup(error);
+        }
+      });
+    } else {
+      list.stream() //<8>
+          .limit(5)
+          .forEach(favId -> favoriteService.getDetails(favId, //<9>
+            new Callback<Favorite>() {
+              public void onSuccess(Favorite details) {
+                UiUtils.submitOnUiThread(() -> uiList.show(details));
+              }
+
+              public void onError(Throwable error) {
+                UiUtils.errorPopup(error);
+              }
+            }
+          ));
+    }
+  }
+
+  public void onError(Throwable error) {
+    UiUtils.errorPopup(error);
+  }
+});
+----
+<1> 我们提供了基于回调的服务：一个`Callback` 接口包含当异步处理成功和失败时的两个方法。
+<2> 第一个服务使用喜好列表ID执行回调。
+<3> 如果列表为空，则必须转到 `suggestionService`。
+<4> `suggestionService` 将 `List<Favorite>` 给到第二个回调。
+<5> 由于我们处理的是UI，我们需要确保我们的消费代码跑在UI线程。
+<6> 我们使用Java8 `Stream` 来限制建议的数量为5个，并且将它们展示在UI的图形列表中。
+<7> 在每个级别，我们都以相同的方式处理错误：将其显示在弹出窗口中。
+<8> 返回到喜好ID级别。如果服务返回了完整的列表，我们需要转到 `favoriteService` 来获取详细的 `Favorite` 对象。因为我们只需要五个，所以我们首先将ID列表的流限制为5个。
+<9> 再一次回调。这一次我们得到一个完整的 `Favorite` 对象，我们在UI线程内将其推送到UI。
+====
+
+存在大量包含重复且难以追踪的代码。在Reactor实现相同的功能：
+
+.Example of Reactor code equivalent to callback code
+====
+[source,java]
+----
+userService.getFavorites(userId) // <1>
+           .flatMap(favoriteService::getDetails) // <2>
+           .switchIfEmpty(suggestionService.getSuggestions()) // <3>
+           .take(5) // <4>
+           .publishOn(UiUtils.uiThreadScheduler()) // <5>
+           .subscribe(uiList::show, UiUtils::errorPopup); // <6>
+----
+<1> 我们从一个喜好ID的流开始。
+<2> 我们 _异步地将它们转换_ 为详细的 `Favorite` 对象(`flatMap`)。现在我们有了一个 `Favorite` 的流。
+<3> 如果 `Favorite` 流为空，我们降级到 `suggestionService`。
+<4> 我们最多只关注结果流中的五个元素。
+<5> 最后我们处理UI线程中的每个元素。
+<6> 我们通过描述最终如何处理数据的形式来触发流（在UI列表中显示）以及出现错误时的操作（显示弹出窗口）。
+====
+
+如果想要确保在800ms内检索到喜好ID，当耗时较长时，从缓存中获取？在基于回调的代码中，这是一个复杂的任务。在Reactor中，在链中添加一个 `timeout` 操作符就变得非常简单，如下所示：
+
+.Example of Reactor code with timeout and fallback
+====
+[source,java]
+----
+userService.getFavorites(userId)
+           .timeout(Duration.ofMillis(800)) // <1>
+           .onErrorResume(cacheService.cachedFavoritesFor(userId)) // <2>
+           .flatMap(favoriteService::getDetails) // <3>
+           .switchIfEmpty(suggestionService.getSuggestions())
+           .take(5)
+           .publishOn(UiUtils.uiThreadScheduler())
+           .subscribe(uiList::show, UiUtils::errorPopup);
+----
+<1> 如果以上部分在800ms内没有发射出元素，则传播一个错误。
+<2> 如果发生错误，降级到 `cacheService`。
+<3> 链的其余部分与前面的示例类似。
+====
+
+`Future` 对象比回调稍微好一点，但依然难以进行组合，尽管Java8中 `CompletableFuture` 对其做了改进。编排多个 `Future` 对象在一起虽然是可以行的，但并不容易。另外，`Future` 有其它的问题：
+
+* 调用 `get()` 方法很容易导致 `Future` 对象出现另一个阻塞的情况。
+* 不支持惰性计算。
+* 缺乏对多值和高级错误处理的支持。
+
+考虑另外一个示例：获取到一个ID列表，我们需要获取其名称或统计信息并将其组合，且所有的操作都是异步的。下面的例子使用 `CompletableFuture` 类型列表执行此操作：
+
+.Example of `CompletableFuture` combination 
+====
+[source,java]
+----
+CompletableFuture<List<String>> ids = ifhIds(); // <1>
+
+CompletableFuture<List<String>> result = ids.thenComposeAsync(l -> { // <2>
+	Stream<CompletableFuture<String>> zip =
+			l.stream().map(i -> { // <3>
+				CompletableFuture<String> nameTask = ifhName(i); // <4>
+				CompletableFuture<Integer> statTask = ifhStat(i); // <5>
+
+				return nameTask.thenCombineAsync(statTask, (name, stat) -> "Name " + name + " has stats " + stat); // <6>
+			});
+	List<CompletableFuture<String>> combinationList = zip.collect(Collectors.toList()); // <7>
+	CompletableFuture<String>[] combinationArray = combinationList.toArray(new CompletableFuture[combinationList.size()]);
+
+	CompletableFuture<Void> allDone = CompletableFuture.allOf(combinationArray); // <8>
+	return allDone.thenApply(v -> combinationList.stream()
+			.map(CompletableFuture::join) // <9>
+			.collect(Collectors.toList()));
+});
+
+List<String> results = result.join(); // <10>
+assertThat(results).contains(
+		"Name NameJoe has stats 103",
+		"Name NameBart has stats 104",
+		"Name NameHenry has stats 105",
+		"Name NameNicole has stats 106",
+		"Name NameABSLAJNFOAJNFOANFANSF has stats 121");
+----
+<1> 从一个给定需要处理的 `id` 列表开始。
+<2> 一旦得到列表，我们需要进一步的异步处理。
+<3> 遍历列表中的每个元素。
+<4> 异步获取关联的名称。
+<5> 异步获取关联的任务。
+<6> 合并结果。
+<7> 现在，我们有了表示所有组合任务的future列表。为了执行这些任务，我们需要转换列表为数组。
+<8> 将数组传递给 `CompletableFuture.allOf`，输出到一个 `Future` 对象，然后当所有的任务都完成后完成。 
+<9> 棘手的是，`allOf` 返回 `CompletableFuture<Void>` ，我们重新遍历future列表，使用 `join()` 收集其结果（这里不会阻塞，因为 `allOf` 已经确保这些futures已经完成）。
+<10> 一旦触发了整个异步链，我们就可以等待其执行结果返回，且断言返回的结果。
+====
+
+由于Reactor提供了更多开箱即用的组合运算符，这个过程可以被简化如下：
+
+.Example of Reactor code equivalent to future code
+====
+[source,java]
+----
+Flux<String> ids = ifhrIds(); // <1>
+
+Flux<String> combinations =
+		ids.flatMap(id -> { // <2>
+			Mono<String> nameTask = ifhrName(id); // <3>
+			Mono<Integer> statTask = ifhrStat(id); // <4>
+
+			return nameTask.zipWith(statTask, // <5>
+					(name, stat) -> "Name " + name + " has stats " + stat);
+		});
+
+Mono<List<String>> result = combinations.collectList(); // <6>
+
+List<String> results = result.block(); // <7>
+assertThat(results).containsExactly( // <8>
+		"Name NameJoe has stats 103",
+		"Name NameBart has stats 104",
+		"Name NameHenry has stats 105",
+		"Name NameNicole has stats 106",
+		"Name NameABSLAJNFOAJNFOANFANSF has stats 121"
+);
+----
+<1> 这一次，我们从已提供的一个异步序列 `ids`（`Flux<String>`）开始。
+<2> 对于序列中的每个元素，我们异步处理（在调用的 `flatMap` 函数内部）两次。
+<3> 获取关联的名称。
+<4> 获取关联的统计信息。
+<5> 异步合并两个结果值。
+<6> 在值可用时聚合到 `List` 中。
+<7> 在生产中，我们会进一步通过 `Flux` 异步的组合或者订阅。一般情况下，我们会返回 `result` `Mono`。由于我们现在用作测试，我们阻塞等待结果处理完成，然后直接返回聚合的值列表。
+<8> 断言结果。
+====
+
+使用回调和 `Future`对象的缺点是相似的，且是 `Publisher-Subscriber` 的响应式编程所要解决的问题。
+
+== 从命令式到响应式编程
+
+诸如Reactor之类的响应式库，旨在解决JVM上这些 " `经典` "的异步方法的缺点，同时还关注一些其它的方面：
+
+* *组合性* 和 *易读性*
+* 数据作为 *流* 操作，且有着丰富的 *操作符*
+* 在 *订阅* 之前什么都不会发生
+* *背压* 或者 _消费者向生产者发送信号表示发布速率太快_
+* 与 _并发无关_ 的高阶抽象
+
+=== 组合性和易读性
+
+"`可组合性`"是指能够编排多个异步任务，我们使用先前任务的结果将输入提供给后续任务。另外，我们可以以fork-join的形式运行多个任务。此外，我们能复用异步任务作为离散组件到更高层次的系统中。
+
+编排任务的能力是与代码的可读性和可维护性紧密耦合。随着异步处理的层数和复杂性的增加，编写和阅读代码变得越来越困难。正如我们看到的一样，整个回调模型是非常简单的，但是其主要的缺点之一是，对于复杂的处理，你需要从一个回调中执行一个回调，其本身嵌套在另一个回调中，依此类推。这种混乱被称为"`地狱回调`"。正如你所料到的（或从经验得知），如此的代码是相当难以回溯和推理的。
+
+Reactor提供了丰富的组合选项，其中在代码中反映了抽象过程，并且所有内容通常保持在同一级别（减少嵌套）。
+
+=== 类比流水线
+
+你可以将响应式应用数据处理当作在组装流水线上流动。Reactor既是流水线又是工作站。原料来源于（原始的 `Publisher`）并最终作为一个产品，准备推送到消费者（`Subscriber`）。
+
+原料可以通过各种转换和其它的中间步骤，或者将中间零件聚合在一起成为更大的流水线的一部分。如果在某一点出现故障或者堵塞（也许产品装箱所需时间过长），当前被影响到的工作站可以向上游发出信号来限制原料的流动。
+
+=== 操作符
+
+在Reactor中，操作符是我们流水线类比中的工作站。每个操作符添加行为到 `Publisher` 中，并将上一步的 `Publisher` 包装到新的实例中。因此，整个链被链接在一起，数据源于第一个 `Publisher` 沿着链向下移动，并通过每个链接进行转换。最终，`Subscriber` 完成处理。记住，正如我们很快会看到的，在 `Subscriber` 订阅 `Publisher` 之前，什么都不会发生。
+
+TIP: 理解操作符创建新的实例可以帮助你避免一个常见的错误，该错误会导致你认为你在链中使用的运算符未被应用。请参见FAQ中 <<faq.chain,item>>。
+
+尽管在响应式流规范中根本没有指定操作符，Reactor作为优秀响应式库中之一的添加了这些操作，提供了丰富的操作符。且涉及了很多方面，从简单的转换和过滤到复杂的编排和错误处理。
+
+[[reactive.subscribe]]
+=== `subscribe()` 之前什么都不会发生
+
+在Reactor中，当你写一个 `Publisher` 链时，默认情况下不会开始注入数据。相反，你可以创建异步处理（有助于重用和组合）的抽象描述。
+
+通过 *订阅*，可以将 `Publisher` 与 `Subscriber` 进行绑定，从而触发整个链中的流数据。这是在内部实现的，通过单个 `request` 信号从 `Subscriber` 传播到上游，一直传回到 `Publisher`。
+
+[[reactive.backpressure]]
+=== 背压
+
+向上游传播信号也用作实现 *背压*，我们在组装流水线类比中将其描述为，当工作站的处理速度比上游工作站慢时，沿生产线向上发送反馈信号。
+
+响应式流规范所定义的实际机制与类比非常接近：一个订阅者可以以 _无界_ 模式工作，并让源以其最快的速率推送所有的数据，也可以使用 `request` 机制向源发送信号，表明已准备好最多处理 `n` 个元素。
+
+中间操作符也可以在中途改变请求。设想一个以十为一组将元素进行分组的 `buffer` 操作符。如果订阅者请求一个buffer，源可以生成十个元素。一些操作符还实现了 *提前获取* 的策略，能够避免 `request(1)` 往返，如果在请求之前生产元素的成本不太高，那么这种策略是有益的。
+
+这会将推模式转换为 *推拉混合*，当元素随时可用时，下游可以从上游获取n个元素。但是如果这些元素还没准备好，每当它们被生产时，就会被上游推送到下游。
+
+[[reactive.hotCold]]
+=== 热 vs 冷
+
+Rx系列的响应库区分了两大类响应式序列：*热* 和 *冷*，这种区别主要与响应式流如何对订阅者作出反应相关：
+
+- 一个 *冷* 的序列会对每个 `Subscriber` 都重新开始，包括数据源。例如，如果源包装了一个HTTP调用，则会为每个订阅发起一个新的HTTP请求。
+- 一个 *热* 的序列对每个 `Subscriber` 并非是从头开始。更确切地说，晚到的订阅者会在订阅后接收到发送的信号。但是注意，有些热的响应式流可以缓存或者重置全部或部分下发历史。从一般的角度来看，一个热的序列即使没有订阅者处于监听（对于"`订阅之前什么都不会发生`"规则是个例外），也能下发。
+
+关于Reactor上下文中热与冷的更多信息，请看 <<reactor.hotCold,this reactor-specific section>>。
+
+//TODO talk about being concurrency-agnostic? Elements of functional style?
