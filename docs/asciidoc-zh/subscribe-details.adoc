@@ -1,0 +1,195 @@
+=== `subscribe` 方法示例
+
+本节包含了 `subscribe` 方法的五个签名的最简单示例。以下代码显示了一个没有参数的基本方法的例子：
+
+====
+[source,java]
+----
+Flux<Integer> ints = Flux.range(1, 3); <1>
+ints.subscribe(); <2>
+----
+<1> 设置一个 `Flux`，在订阅者连接时生成三个值。
+<2> 用最简单的方式订阅。
+====
+
+前面的代码不会产生任何可见的输出，但它确实起作用。`Flux` 产生三个值。如果我们提供一个lambda，则可以让这些值可见。`subscribe` 方法的下一个示例显示了一种使值显示的方法：
+
+====
+[source,java]
+----
+Flux<Integer> ints = Flux.range(1, 3); <1>
+ints.subscribe(i -> System.out.println(i)); <2>
+----
+<1> 设置一个 `Flux`，在订阅者连接时生成三个值。
+<2> 用能打印值的订阅者进行订阅。
+====
+
+前面的代码产生以下输出：
+
+====
+[source]
+----
+1
+2
+3
+----
+====
+
+为了演示下一个方法签名，我们故意引入一个错误，如下例所示：
+
+====
+[source, java]
+----
+Flux<Integer> ints = Flux.range(1, 4) <1>
+      .map(i -> { <2>
+        if (i <= 3) return i; <3>
+        throw new RuntimeException("Got to 4"); <4>
+      });
+ints.subscribe(i -> System.out.println(i), <5>
+      error -> System.err.println("Error: " + error));
+----
+<1> 设置一个 `Flux`，在订阅者连接时生成四个值。
+<2> 我们需要一个map，这样我们就可以对一些值进行不同的处理。
+<3> 对于大多数值，返回该值。
+<4> 对于一个值，强制发生错误。
+<5> 用包括错误处理的订阅者进行订阅。
+====
+
+我们现在有两个lambda表达式：一个是我们期望的内容，一个是错误。前面的代码产生以下输出：
+
+====
+[source]
+----
+1
+2
+3
+Error: java.lang.RuntimeException: Got to 4
+----
+====
+
+`subscribe` 方法的下一个签名包括错误处理和完成事件处理，如下示例所示：
+
+====
+[source,java]
+----
+Flux<Integer> ints = Flux.range(1, 4); <1>
+ints.subscribe(i -> System.out.println(i),
+    error -> System.err.println("Error " + error),
+    () -> System.out.println("Done")); <2>
+----
+<1> 设置一个 `Flux`，在订阅者连接时生成四个值。
+<2> 用包含完成事件处理的订阅者进行订阅。
+====
+
+错误信号和完成信号都是终止事件，并且彼此互斥（你永远不会同时得到这两个信号）。为了完成消费，我们必须注意不要触发错误。
+
+完成回调没有输入，用一对空括号表示：它与 `Runnable` 接口中的 `run` 方法相匹配。上面的代码产生以下输出：
+
+====
+[source]
+----
+1
+2
+3
+4
+Done
+----
+====
+
+`subscribe` 方法的最后一个签名包括一个 `Consumer<Subscription>`。
+
+NOTE: 这种形式要求你对 `Subscription`（对其执行 `request(long)` 或 `cancel()`）做一些事情。否则 `Flux` 会挂起。
+
+以下示例显示了 `subscribe` 方法的最后一个签名：
+
+====
+[source,java]
+----
+Flux<Integer> ints = Flux.range(1, 4);
+ints.subscribe(i -> System.out.println(i),
+    error -> System.err.println("Error " + error),
+    () -> System.out.println("Done"),
+    sub -> sub.request(10)); <1>
+----
+<1> 当我们订阅时，我们会收到一个 `Subscription`。表示我们最多希望从源（实际上会发出4个元素并完成）中接收到 `10` 个元素。
+====
+
+=== 用 `Disposable` 取消 `subscribe()`
+
+所有这些基于lambda的 `subscribe()` 形式都有一个 `Disposable` 返回类型。在这种情况下，`Disposable` 接口表示订阅都可以通过调用其 `dispose()` 方法来 _取消_ 订阅。
+
+对于 `Flux` 或 `Mono` 来说，取消是源应该停止产生元素的信号。然而，并不能保证立即执行：某些源可能产生元素的速度太快，以至于它们甚至可以在收到取消指令之前就能完成。
+
+`Disposables` 类中提供了一些关于 `Disposable` 的工具集。其中，`Disposables.swap()` 创建了一个 `Disposable` 包装器，让你可以原子地取消和替换一个具体的 `Disposable`。这在UI场景中会非常有用，例如，当用户单击按钮时，你想取消请求并将其替换为新的请求。处理包装本身会关闭它。这样做会处理掉当前的具体值和所有未来尝试的替换。
+
+另一个有趣的工具方法是 `Disposables.composite(...)`。这个组合可以让你收集多个 `Disposable` -- 例如，与一个服务调用相关联的多个进行中的请求 -- 并在稍后一次性处理所有这些请求。一旦组合的 `dispose()` 方法被调用，任何试图添加另一个 `Disposable` 的尝试都会立即处理它。
+
+=== Lambda的替代方案：`BaseSubscriber`
+
+另外还有一个更通用的 `subscribe` 方法，它接受一个完整的 `Subscriber`，而不是用lambda组成一个。为了帮助编写这样的 `Subscriber`，我们提供了一个名为 `BaseSubscriber` 的可扩展类。
+
+WARNING: `BaseSubscriber`（或其子类）的实例是 *单一用途*，这意味着，如果一个 `BaseSubscriber` 订阅了第二个 `Publisher`，则会取消对第一个 `Publisher` 的订阅。这是因为使用一个实例两次违反了响应式流的规则，即 `Subscriber` 的 `onNext` 方法必须不能被并行调用。因此，只有在对 `Publisher#subscribe(Subscriber)` 的调用中直接声明匿名实现时，匿名实现才是不错的。
+
+现在我们可以实现其中的一个。我们称之为 `SampleSubscriber`。下面的例子显示了如何将其附加到 `Flux`：
+
+====
+[source,java]
+----
+SampleSubscriber<Integer> ss = new SampleSubscriber<Integer>();
+Flux<Integer> ints = Flux.range(1, 4);
+ints.subscribe(i -> System.out.println(i),
+    error -> System.err.println("Error " + error),
+    () -> {System.out.println("Done");},
+    s -> s.request(10));
+ints.subscribe(ss);
+----
+====
+
+下面的例子显示了 `SampleSubscriber` 作为 `BaseSubscriber` 的简约实现的样子：
+
+====
+[source,java]
+----
+package io.projectreactor.samples;
+
+import org.reactivestreams.Subscription;
+
+import reactor.core.publisher.BaseSubscriber;
+
+public class SampleSubscriber<T> extends BaseSubscriber<T> {
+
+	public void hookOnSubscribe(Subscription subscription) {
+		System.out.println("Subscribed");
+		request(1);
+	}
+
+	public void hookOnNext(T value) {
+		System.out.println(value);
+		request(1);
+	}
+}
+----
+====
+
+`SampleSubscriber` 类扩展了 `BaseSubscriber`，在Reactor中，它作为用户自定义的 `Subscribers` 的推荐抽象类。这个类提供了可以被重载并以此来调整订阅者行为的钩子。默认情况下，它会触发一个无界的请求，且行为方式与 `subscribe()` 完全相同。然而，当你想要一个自定义请求数量时，扩展一个 `BaseSubscriber` 会更有用。
+
+对于一个自定义请求数量，最起码是像我们一样实现 `hookOnSubscribe(Subscription subscription)` 和 `hookOnNext(T value)`。在我们的例子中，`hookOnSubscribe` 方法打印一条语句到标准输出并发出第一个请求。然后 `hookOnNext` 方法打印一条语句并执行其它的请求，每次一个请求。
+
+`SampleSubscriber` 类产生以下输出：
+
+====
+[source]
+----
+Subscribed
+1
+2
+3
+4
+----
+====
+
+`BaseSubscriber` 还提供了一个 `requestUnbounded()` 方法来切换到无界模式（相当于 `request(Long.MAX_VALUE)`），以及一个 `cancel()` 方法。
+
+它还具有其它钩子：`hookOnComplete`，`hookOnError`，`hookOnCancel`，和 `hookFinally`（总是在序列终止时被调用，终止类型作为 `SingalType` 参数传递）。
+
+NOTE: 你几乎肯定要实现 `hookOnError`，`hookOnCancel`，和 `hookOnComplete` 方法。你可能还想实现 `hookFinally` 方法。`SampleSubscribe` 是 _执行有界请求_ 的 `Subscriber` 的绝对最小实现。
