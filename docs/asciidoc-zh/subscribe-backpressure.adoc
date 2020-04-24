@@ -1,0 +1,63 @@
+=== 关于背压和调整请求的方法
+
+在Reactor中实现背压时，通过向上游操作符发送 `request`，将消费者的压力传回到源端。当前请求的总和有时被称为当前 "`需求`"，或者 "`等待的请求`"。
+请求的上限为 `Long.MAX_VALUE`，表示为无限制的请求（意思是“`尽可能快的生产`” -- 基本上是禁用了背压）。
+
+第一个请求来自于订阅时的最终订阅者，然而最直接的订阅方式都会立即触发一个 `Long.MAX_VALUE` 的无界请求：
+
+* `subscribe()` 和大多数基于lambda的形式（具有 Consumer<Subscription> 的除外）
+* `block()`，`blockFirst()` 和 `blockLast()`
+* 在 `toIterable()` 或 `toStream()` 上迭代
+
+自定义原始请求最简单的方法是使用重写了 `hookOnSubscribe` 方法的 `BaseSubscriber` 来 `subscribe`，如下例所示：
+
+====
+[source,java]
+----
+Flux.range(1, 10)
+    .doOnRequest(r -> System.out.println("request of " + r))
+    .subscribe(new BaseSubscriber<Integer>() {
+
+      @Override
+      public void hookOnSubscribe(Subscription subscription) {
+        request(1);
+      }
+
+      @Override
+      public void hookOnNext(Integer integer) {
+        System.out.println("Cancelling after having received " + integer);
+        cancel();
+      }
+    });
+----
+====
+
+前面的代码片段打印出以下内容：
+
+====
+[source]
+----
+request of 1
+Cancelling after having received 1
+----
+====
+
+WARNING: 在处理一个请求时，你必须小心产生足够的需求以使序列前进，否则Flux可能会被 “`卡住`”。这就是为什么 `BaseSubscriber` 在 `hookOnSubscribe` 默认为无限的请求。当重写这个钩子时，你通常应该至少调用一次 `request`。
+
+==== 改变下游请求的操作符
+
+有一点要记住的是，在订阅层表达的请求可以被上游链中的每个操作符重新调整。一个范例就是 `buffer(N)` 操作符：如果它接收到 `request(2)`，则解释为需要 *两个完整缓冲区*。因此，由于缓冲区需要 `N` 个元素才能被视为已满足请求，因此 `buffer` 操作符将请求重新调整为 `2 x N`。
+
+你可能还注意到有些操作符采用名为 `prefetch` 的 `int` 输入参数的形式。这是另一类修改下游请求的操作符。它们通常用于处理内部序列，从输入的每个元素（如 `flatMap`）中派生出 `Publisher`。
+
+*Prefetch* 是对这些内部序列发出的初始请求进行调整的一种方法。如果未指定，这些操作符大多都以 `32` 的需求开始。
+
+这些操作符通常还实现了 *补充优化*：一旦操作符看到75%的预取请求已完成，它将从上游重新请求75%。这是一种启发式优化，使这些操作符能够主动预测即将到来的请求。
+
+最后，有两个操作符可以让你直接调整请求：`limitRate` 和 `limitRequest`。
+
+`limitRate(N)` 对下游请求进行拆分，以便将其分批次向上游传播。例如，对 `limitRate(10)` 发出 `100` 的请求会导致最多10个请求，分为10个批次传播到上游。注意，在这种形式下，`limitRate` 实际上实现了前面讨论的补充优化。
+
+该操作符有一个可以让你调整补充数量（称为 `lowTide`）的形式：`limitRate(highTide, lowTide)`。选择 `lowTide` 为 `0` 将导致 *严格的* 批次 `highTide` 请求，而不是由补充策略进一步调整批次。
+
+另一方面，`limitRequest(N)` *限制* 将下游请求的最大请求量。它将请求累加到 `N`。如果单个 `request` 没有超过总的请求 `N`，则该特定请求将完全传播到上游。在源发出该请求量后，`limitRequest` 将序列视为已完成，向下游发送 `onComplete` 信号，并取消源。
