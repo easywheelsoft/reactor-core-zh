@@ -1,0 +1,18 @@
+====
+[source,java]
+----
+Flux<String> flux =
+Flux.<String>error(new IllegalArgumentException())
+    .retryWhen(companion -> companion
+    .zipWith(Flux.range(1, 4), // <1>
+          (error, index) -> { // <2>
+            if (index < 4) return index; // <3>
+            else throw Exceptions.propagate(error); // <4>
+          })
+    );
+----
+<1> 技巧一：使用 `zip` 和 ”可接受的重试次数+1“ 的 `range`
+<2> `zip` 函数可让在跟踪原始错误的同时计算重试次数。
+<3> 为了允许三次重试，4之前的索引会返回来发出值。
+<4> 为了在错误中终止序列，我们在这三次重试之后抛出原始异常。
+====
