@@ -1,0 +1,69 @@
+[[kotlin]]
+= Kotlin的支持
+
+[[kotlin-introduction]]
+https://kotlinlang.org[Kotlin] 是一门针对JVM（和其它平台）的静态类型语言，可以编写简洁而优雅的代码，同时与现有的Java扩展库提供了很好的
+https://kotlinlang.org/docs/reference/java-interop.html[互操作性]。
+
+本节介绍了Reactor对Kotlin的支持。
+
+[[kotlin-requirements]]
+== 要求
+
+Reactor支持Kotlin 1.1+，需要 https://bintray.com/bintray/jcenter/org.jetbrains.kotlin%3Akotlin-stdlib[`kotlin-stdlib`]（或 https://bintray.com/bintray/jcenter/org.jetbrains.kotlin%3Akotlin-stdlib-jre7[`kotlin-stdlib-jre7`] 或 https://bintray.com/bintray/jcenter/org.jetbrains.kotlin%3Akotlin-stdlib-jre8[`kotlin-stdlib-jre8`] 其中之一）。
+
+[[kotlin-extensions]]
+== 扩展
+
+[WARNING]
+=====
+从 `Dysprosium-M1`（即 `reactor-core 3.3.0.M1`）开始，Kotlin扩展被移到一个专门的 https://github.com/reactor/reactor-kotlin-extensions[`reactor-kotlin-extensions`] 模块，该模块用新的以 `reactor.kotlin` 开始的包名代替之前简单的 `reactor`。
+
+因此，不推荐使用 `reactor-core` 模块中的Kotlin扩展。新的依赖项groupId和artifactId是：
+
+====
+[source,gradle]
+----
+io.projectreactor.kotlin:reactor-kotlin-extensions
+----
+====
+=====
+
+得益于强大的 https://kotlinlang.org/docs/reference/java-interop.html[Java互操作性]和 https://kotlinlang.org/docs/reference/extensions.html[Kotlin扩展]，Reactor的Kotlin API使用常规的Java API，并通过对一些Kotlin特有的API进行增强，这些API可以在Reactor中开箱即用。
+
+NOTE: 记住必须要导入Kotlin扩展后才能使用。例如，这意味着只有在导入 `import reactor.kotlin.core.publisher.toFlux` 的情况下，`Throwable.toFlux` Kotlin扩展才能使用。也就是说，类似于静态导入，在大多数情况下，IDE应该会自动建议导入。
+
+例如，https://kotlinlang.org/docs/reference/inline-functions.html#reified-type-parameters[Kotlin实化类型参数]为JVM https://docs.oracle.com/javase/tutorial/java/generics/erasure.html[泛型类型擦除]提供了一个解决方案，且Reactor提供了一些扩展来利用这个特性。
+
+下表比较了Java中的Reactor和Kotlin中的Reactor扩展。
+
+|===
+|*Java*|*Kotlin扩展*
+|`Mono.just("foo")`
+|`"foo".toMono()`
+|`Flux.fromIterable(list)`
+|`list.toFlux()`
+|`Mono.error(new RuntimeException())`
+|`RuntimeException().toMono()`
+|`Flux.error(new RuntimeException())`
+|`RuntimeException().toFlux()`
+|`flux.ofType(Foo.class)`
+|`flux.ofType<Foo>()` or `flux.ofType(Foo::class)`
+|`StepVerifier.create(flux).verifyComplete()`
+|`flux.test().verifyComplete()`
+|===
+
+https://projectreactor.io/docs/kotlin/release/kdoc-api/[Reactor KDoc API]列出并记录了所有可用的Kotlin扩展。
+
+[[kotlin-null-safety]]
+== 空安全
+
+Kotlin的关键特性之一是 https://kotlinlang.org/docs/reference/null-safety.html[空安全]，它在编译时干净利落地处理了 `null` 值，而不是在运行时碰到著名的 `NullPointerException` 异常。通过可空性的声明和“`有值或者无值`”的语义表达可以使应用更加安全，而不需要花费代价进行诸如 `Optional` 这样的封装。（Kotlin允许使用具有空值的函数构造。请看 https://www.baeldung.com/kotlin-null-safety[关于Kotlin空安全的全面指南]。）
+
+尽管Java不允许在其类型系统中表示null安全，但通过在 `reactor.util.annotation` 包中声明的友好的注释，Reactor为整个Reactor API<<null-safety,提供空安全>>。默认情况下，Kotlin中使用的Java API中的类型会被识别为 https://kotlinlang.org/docs/reference/java-interop.html#null-safety-and-platform-types[平台类型]，对于这些类型，空检查可以放宽。https://github.com/Kotlin/KEEP/blob/jsr-305/proposals/jsr-305-custom-nullability-qualifiers.md[Kotlin支持JSR 305注释] 和Reactor可空性注释为Kotlin开发者提供了整个Reactor API的空安全，在编译时处理 `null` 相关问题的优势。
+
+你可以通过添加 `-Xjsr305` 编译器标签来配置JSR 305的检查，并使用以下选项：`-Xjsr305={strict|warn|ignore}`。
+
+对于Kotlin 1.1.50+的版本，默认行为与 `-Xjsr305=warn` 相同。`strict` 表示需要考虑Reactor API的完全空安全，但应该被认为是实验性的，因为Reactor API的可空性声明即使是在小的发行版之间也会发生演变，也可能会在未来增加更多的检查。
+
+NOTE: 尚不支持泛型类型参数和变量参数，数组元素的可空性，但是应该会在即将发布的版本中出现。有关最新的信息，请看 https://github.com/Kotlin/KEEP/issues/79[此讨论]。
