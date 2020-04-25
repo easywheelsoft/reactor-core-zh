@@ -1,0 +1,93 @@
+Processor是一种特殊的 `Publisher`，也是 `Subscriber`。这意味着你可以 `subscribe` 一个 `Processor`（通常，它们实现了 `Flux`），但你也可以调用方法手动将数据注入到序列或终止它。
+
+Processor有几种，每一种都有一些特殊的语义，但是在你开始研究它们之前，你需要问自己以下问题：
+
+= 我需要一个Processor吗?
+
+大多数时候，你应该尽量避免使用 `Processor`。它们很难正确使用，而且容易出现一些极端的情况。
+
+如果你认为 `Processor` 比较适合你的情况，请问你自己是否尝试过这两种选择：
+
+. 操作符或者组合操作符是否满足要求？（看<<which-operator>>）
+. 能否用 <<producing,"`generator`">> 操作符代替？（通常，这些操作符用于桥接非响应式的API，提供了一个概念上类似于 `Processor` 的“`sink`”，也就是说它允许你用数据手动填充或终止序列）。
+
+如果在考察了上述的替代方案后，你仍然认为你需要一个 `Processor`，请阅读 <<processor-overview>> 章节了解不同的实现。
+
+= 使用 `Sink` 外观模式多线程安全生产
+
+与其直接使用Reactor的 `Processors`，不如通过 *一次性* 调用 `sink()` 来获得 `Processor` 的 `Sink`。
+
+`FluxProcessor` 接收器可以安全地关闭多线程生产者，并可以被多线程并发的生成数据的应用使用。例如，你可以通过以下操作为 `UnicastProcessor` 创建一个线程安全的序列化接收器：
+
+====
+[source,java]
+----
+UnicastProcessor<Integer> processor = UnicastProcessor.create();
+FluxSink<Integer> sink = processor.sink(overflowStrategy);
+----
+====
+
+多个生产者线程可以通过执行以下操作，在下面的序列化接收器上并发的生产数据：
+
+====
+[source,java]
+----
+sink.next(n);
+----
+====
+
+WARNING: 尽管 `FluxSink` 适用于 `Processor` 的多线程 *手动* 输入，但不可能将订阅者方法和接收器方法混合使用：你必须将 `FluxProcessor` 订阅到源 `Publisher` 或者通过它的 `FluxSink` 手动输入。
+
+从 `next` 溢出有两种可能的方式，这具体取决于 `Processor` 及其配置：
+
+* 无界处理器通过丢弃或缓冲来处理溢出本身。
+* 有界处理器在 `IGNORE` 策略上阻塞或 “`旋转`”，或为 `sink` 指定的 `overflowStrategy` 行为。
+
+[[processor-overview]]
+= 可用处理器概述
+
+Reactor核心配备了几种 `Processor`。并非所有的处理器都有相同的语义，但是它们大致分为三类。以下列表简要介绍了这三类处理器：
+
+* *直接的* （`DirectProcessor` 和 `UnicastProcessor`）：这些处理器只能通过用户直接操作（直接调用其 `Sink` 方法）来推送数据。
+* *同步的*（`EmitterProcessor` 和 `ReplayProcessor`）：这些处理器可以通过用户交互推送数据，也可以订阅上游的 `Publisher` 并同步消耗数据。
+
+TIP: 将事件发布到不同线程上的一种方法是将 `EmitterProcessor` 与 `publishOn(Scheduler)` 结合使用。例如，这可以取代以前的 `TopicProcessor`，在3.3.0中，它使用了 `Unsafe` 操作，并已被移到 https://github.com/reactor/reactor-addons/tree/master/reactor-extra/src/main/java/reactor/extra/processor[reactor-extra]。
+
+== 直接的处理器
+
+直接的 `Processor` 是一个可以向零个或多个 `Subscribers` 发送信号的处理器。最简单的实例化，只需要一个 `DirectProcessor#create()` 静态工厂方法。另一方面，*它具有不处理背压的局限性*。因此，如果你通过 `DirectProcessor` 推送了N个元素，但是如果有一个订阅者请求数量小于N，那么 `DirectProcessor` 就会向订阅者发送 `IllegalStateException` 的信号。
+
+一旦 `Processor` 终止（通常是其接收器的 `error(Throwable)` 或者 `complete()` 方法被调用），它就会允许更多的订阅者订阅，但会立即将终止信号传播给它们。
+
+== 单播处理器
+
+单播 `Processor` 可以通过使用内部缓冲区来处理背压。不足之处是它最多只能有一个 `Subscriber`。
+
+与直接处理器相比，`UnicastProcessor` 有更多的选项，这一点从几个 `create` 静态工厂的方法的存在可以反映出来。例如，默认情况下，它是无界的：如果在其 `Subscriber` 还没有请求数据的时候向它推送任何数量的数据，它将缓冲所有的数据。
+
+你可以通过在 `create` 工厂方法中为内部缓冲区提供一个自定义的 `Queue` 实现来改变这一点。如果队列是有界的，那么当缓冲区满了，并且没有收到来自下游的足够请求时，处理器可能会拒绝数据的推送。
+
+在这种 _有界_ 的情况下，你也可以在处理器上建立一个回调，在每个被拒绝的元素上都会被调用，允许清理这些被拒绝的元素。
+
+== 发射器处理器
+
+一个发射器 `Processor` 可以发射给多个订阅者，同时为其每个订阅者提供背压。它还可以订阅到 `Publisher` 并同步转发其信号。
+
+最开始，在它没有订阅者的时候，它仍然可以接收一些数据推送，最大为可配置的 `bufferSize`。此后，如果没有 `Subscriber` 订阅并消费数据，那么就会调用 `onNext` 块，直到处理器被耗尽为止（这只能同时发生）。
+
+因此，第一个 `Subscriber` 在订阅时，最多接收到 `bufferSize` 个元素。但是，此后，处理器停止向其它订阅者重播这些信号。这些后续的订阅者只接受到在订阅后通过处理器推送的信号。内部缓冲区仍用于背压。
+
+默认情况下，如果它的所有订阅者都被取消了（基本上意味着它们已经全部取消订阅），它将清除其内部缓冲区并停止接收新的订阅者。你可以通过使用 `create` 静态工厂方法中的 `autoCancel` 参数来对此进行调整。
+
+== 重播处理器
+
+重播 `Processor` 缓存了直接通过其 `sink()` 直接推送或来自上游 `Publisher` 的元素，并将其重播给后面的订阅者。
+
+可以用多种配置来创建它：
+
+* 缓存单个元素（`cacheLast`）。
+* 缓存一个有限的历史记录（`create(int)`）或 无界的历史记录（`create()`）。
+* 缓存基于时间的重播窗口（`createTimeout(Duration)`）。
+* 缓存历史记录大小和时间窗口的组合（`createSizeOrTimeout(int, Duration)`）。
+
+//TODO == MonoProcessor
