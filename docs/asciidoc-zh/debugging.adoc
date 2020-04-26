@@ -1,0 +1,363 @@
+[[debugging]]
+= 调试Reactor
+
+从命令式同步编程范式切换到响应式异步范式编程有时会让人望而生畏。学习曲线中最陡峭的步骤之一，就是在出现问题时如何分析和调试。
+
+在命令式编程中，调试通常是相当直接的。你可以阅读堆栈跟踪，查看问题的根源。完全是代码出现了故障？该故障是否发生在其它库的代码中？如果是这样，代码的哪一部分是调用了库，可能是传入了不正确的参数，从而导致故障？
+
+== 典型的响应式堆栈追踪
+
+当你转向异步代码时，事情会变得更加复杂。
+
+//TODO The code that generated the following stack trace should be here
+
+考虑一下下面的堆栈信息：
+
+.A typical Reactor stack trace
+====
+[source,java]
+----
+java.lang.IndexOutOfBoundsException: Source emitted more than one item
+	at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:129)
+	at reactor.core.publisher.FluxFlatMap$FlatMapMain.tryEmitScalar(FluxFlatMap.java:445)
+	at reactor.core.publisher.FluxFlatMap$FlatMapMain.onNext(FluxFlatMap.java:379)
+	at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.onNext(FluxMapFuseable.java:121)
+	at reactor.core.publisher.FluxRange$RangeSubscription.slowPath(FluxRange.java:154)
+	at reactor.core.publisher.FluxRange$RangeSubscription.request(FluxRange.java:109)
+	at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.request(FluxMapFuseable.java:162)
+	at reactor.core.publisher.FluxFlatMap$FlatMapMain.onSubscribe(FluxFlatMap.java:332)
+	at reactor.core.publisher.FluxMapFuseable$MapFuseableSubscriber.onSubscribe(FluxMapFuseable.java:90)
+	at reactor.core.publisher.FluxRange.subscribe(FluxRange.java:68)
+	at reactor.core.publisher.FluxMapFuseable.subscribe(FluxMapFuseable.java:63)
+	at reactor.core.publisher.FluxFlatMap.subscribe(FluxFlatMap.java:97)
+	at reactor.core.publisher.MonoSingle.subscribe(MonoSingle.java:58)
+	at reactor.core.publisher.Mono.subscribe(Mono.java:3096)
+	at reactor.core.publisher.Mono.subscribeWith(Mono.java:3204)
+	at reactor.core.publisher.Mono.subscribe(Mono.java:3090)
+	at reactor.core.publisher.Mono.subscribe(Mono.java:3057)
+	at reactor.core.publisher.Mono.subscribe(Mono.java:3029)
+	at reactor.guide.GuideTests.debuggingCommonStacktrace(GuideTests.java:995)
+----
+====
+
+这里面有很多事情。我们得到一个 `IndexOutOfBoundsException` 异常，这告诉我们 `源发射了超过一个以上的元素`。
+
+从下一行提到的 `MonoSingle`，我们可能很快就能推断出该源为一个Flux或者Mono。因此，这似乎是从一个 `single` 操作符报的错误。
+
+参照 `Mono#single` 操作符的Javadoc，我们可以看到 `single` 有一个约定：源必须精确地发射一个元素。看来我们有一个源发射了超过一个以上的元素，因此违反了这一约定。
+
+我们可以更深入地挖掘并确定那个源？下面这几行，对我们的帮助不大。它们通过多次调用 `subscribe` 和 `request`， 带我们了解了似乎是一个响应式链的内部。
+
+通过略读这些行，我们至少可以开始形成一个出错的链的脑图：它似乎涉及到 `MonoSingle` 和 `FluxFlatMap`，`FluxRange`（每个在堆栈跟踪中都能获得几行，但总体上这三个类都涉及到了）。所以也许是一个 `range().flatMap().single()` 链？ 
+
+但是如果我们在应用中大量使用该模式？这仍然不能说明什么问题，单纯的搜索 `single` 并不能发现问题。然后，最后一行值的是我们自己的一些代码。最终，我们离真相越来越近的。
+
+不过，等一下。当我们跳到源文件时，我们只看到一个预先存在到 `Flux` 被订阅，如下所示：
+
+====
+[source,java]
+----
+toDebug.subscribe(System.out::println, Throwable::printStackTrace);
+----
+====
+
+所有这些都是在订阅时发生的，但是 `Flux` 本身并没有在那里声明。更糟糕的是，当我们转到声明变量的地方时时，我们会看到下面的内容：
+
+====
+[source,java]
+----
+public Mono<String> toDebug; //please overlook the public class attribute
+----
+====
+
+变量没有在它被声明的地方被实例化。我们必须假设一个最坏的情况，即我们发现可能有几个不同的代码路径在应用程序中设置它。我们仍然不确定是哪一个引起的问题。
+
+NOTE: 这有点类似于Reactor的运行时错误，而不是编译错误。
+
+我们想更容易发现的是操作符添加到链的位置，即 `Flux` 声明的地方。我们通常将其称为 `Flux` 的“`装配`”。
+
+[[debug-activate]]
+== 激活调试模式 - 又名回溯
+
+WARNING: 本节描述了最简单但也是最慢的方式来启用调试能力，因为它捕获每个操作符上的堆栈。了解更详细的调试方式，请看<<checkpoint-alternative>>，以及对于更高级性能的全局选项，请看<<reactor-tools-debug>>。
+
+尽管对于稍微有点经验的来说，堆栈跟踪能为还是能够表达一些信息，但是我们可以看出，在更高级的案例中，单凭它本身的效果并不理想。
+
+幸运的是，Reactor自带了专门用于调试设计的装配时设施。
+
+这可以通过在应用启动时（或至少在所怀疑的 `Flux` 或者 `Mono` 实例化前）自定义 `Hooks.onOperator` 钩子来实现，如下：
+
+====
+[source,java]
+----
+Hooks.onOperatorDebug();
+----
+====
+
+通过在这里包装操作符的构造和捕获堆栈跟踪开始对 `Flux`（和 `Mono`）操作符方法（装配到链的）的调用进行检测。因为这是在声明操作符链时完成的，所以钩子应该在这之前被激活，所以最安全的方式是直接在应用开始时就激活它。
+
+之后，如果发生异常，失败的操作符能够引用该捕获的信息并将其附加到堆栈跟踪中。我们将捕获的装配信息称为 *回溯*。
+
+在下一节中，我们将看到堆栈跟踪有什么不同，以及如何解释这些新的信息。
+
+== 在调试模式下读取堆栈跟踪
+
+当我们再次使用最开始的例子，但在激活 `operatorStacktrace` 调试功能的时候，堆栈追踪如下：
+
+====
+[source,java]
+----
+java.lang.IndexOutOfBoundsException: Source emitted more than one item
+	at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:129)
+	at reactor.core.publisher.FluxOnAssembly$OnAssemblySubscriber.onNext(FluxOnAssembly.java:375) <1>
+...
+<2>
+...
+	at reactor.core.publisher.Mono.subscribeWith(Mono.java:3204)
+	at reactor.core.publisher.Mono.subscribe(Mono.java:3090)
+	at reactor.core.publisher.Mono.subscribe(Mono.java:3057)
+	at reactor.core.publisher.Mono.subscribe(Mono.java:3029)
+	at reactor.guide.GuideTests.debuggingActivated(GuideTests.java:1000)
+	Suppressed: reactor.core.publisher.FluxOnAssembly$OnAssemblyException: <3>
+Assembly trace from producer [reactor.core.publisher.MonoSingle] : <4>
+	reactor.core.publisher.Flux.single(Flux.java:6676)
+	reactor.guide.GuideTests.scatterAndGather(GuideTests.java:949)
+	reactor.guide.GuideTests.populateDebug(GuideTests.java:962)
+	org.junit.rules.TestWatcher$1.evaluate(TestWatcher.java:55)
+	org.junit.rules.RunRules.evaluate(RunRules.java:20)
+Error has been observed by the following operator(s): <5>
+	|_	Flux.single ⇢ reactor.guide.GuideTests.scatterAndGather(GuideTests.java:949) <6>
+----
+<1> 这是新的异常信息：我们可以看到捕获堆栈的包装操作符。
+<2> 除此之外，第一部分的堆栈依然几乎相同，显示了一些操作符（所以我们在这里去掉了一些代码片段）内部。
+<3> 这就是回溯开始出现的地方。
+<4> 首先，我们得到一些装配操作符处的详细信息。
+<5> 当错误通过操作符链传播时，我们还可以从头到尾（错误端到订阅端）追溯到该错误。
+<6> 每个看到错误的操作符都会提到使用的用户类和行。
+====
+
+捕获的堆栈跟踪会作为简约的 `OnAssemblyException` 异常附加到原始错误中。它分为两部分，但第一部分是最有趣的。它显示了触发异常的操作符的构造路径。在这里，它显示了是 `scatterAndGather` 方法中创建的 `single` 导致了问题，它本身是通过JUnit执行的 `populateDebug` 方法调用的。
+
+现在我们已经掌握了足够的信息来找到罪魁祸首，我们对 `scatterAndGather` 方法进行有意义的研究：
+
+====
+[source,java]
+----
+private Mono<String> scatterAndGather(Flux<String> urls) {
+    return urls.flatMap(url -> doRequest(url))
+           .single(); <1>
+}
+----
+<1> 果然，这里是 `single` 方法。
+====
+
+现在我们可以看到导致错误的根本原因是 `flatMap` 对几个url执行了几个HTTP调用，但是这个调用是用 `single` 串联起来的，限制性太强了。经过简短的使用 `git blame`，并与该行代码的作者进行了简短的讨论后，我们发现他打算使用限制性较小的 `take(1)` 来代替。
+
+我们的问题已经解决了。
+
+现在看下在堆栈跟踪中的这一行：
+
+====
+[source]
+----
+Error has been observed by the following operator(s):
+----
+====
+
+在这个特殊的例子中，调试堆栈跟踪的第二部分并不一定有意思，因为错误实际上发生在链中的最后一个操作符（最接近 `订阅` 的那个）。考虑另一个例子可能会更清晰：
+
+====
+[source,java]
+----
+FakeRepository.findAllUserByName(Flux.just("pedro", "simon", "stephane"))
+              .transform(FakeUtils1.applyFilters)
+              .transform(FakeUtils2.enrichUser)
+              .blockLast();
+----
+====
+
+现在想象一下，在 `findAllUserByName` 中，有一个 `map` 失败了。在这里，我们将看到下面的的回溯：
+
+====
+[source,java]
+----
+Error has been observed by the following operator(s):
+	|_	Flux.map ⇢ reactor.guide.FakeRepository.findAllUserByName(FakeRepository.java:27)
+	|_	Flux.map ⇢ reactor.guide.FakeRepository.findAllUserByName(FakeRepository.java:28)
+	|_	Flux.filter ⇢ reactor.guide.FakeUtils1.lambda$static$1(FakeUtils1.java:29)
+	|_	Flux.transform ⇢ reactor.guide.GuideDebuggingExtraTests.debuggingActivatedWithDeepTraceback(GuideDebuggingExtraTests.java:40)
+	|_	Flux.elapsed ⇢ reactor.guide.FakeUtils2.lambda$static$0(FakeUtils2.java:30)
+	|_	Flux.transform ⇢ reactor.guide.GuideDebuggingExtraTests.debuggingActivatedWithDeepTraceback(GuideDebuggingExtraTests.java:41)
+----
+====
+
+这对应的是操作符链中被通知错误的那部分：
+
+. 异常源于第一个 `map`。
+. 它被第二个 `map` 看到了（实际上这两个方法都对应于 `findAllUserByName` 方法）。
+. 然后通过一个 `filter` 和 `transform` 看到它，这表示链的那部分是由可重用的转换函数构成（这里是 `applyFilters` 工具方法）的。
+. 最后，通过一个 `elapsed` 和 `transform` 看到它。`elapsed` 是由第二个转换的转换函数所使用。
+
+TIP: 当回溯作为简短的异常被附加到原始错误中，这可能在某种程度上会干扰另一种使用此机制的另一种异常：复合异常。这类异常可以直接通过 `Exceptions.multiple(Throwable...)` 来创建，或者通过一些可能连接多个错误源（如 `Flux#flatMapDelayError`）的操作符来创建。它们可以通过 `Exceptions.unwrapMultiple(Throwable)` 展开到 `List` 中，在这种情况下，回溯会被视为组合的一个组件，并成为返回的 `List` 的一部分。相反，如果不需要的话，可以通过 `Exceptions.isTraceback(Throwable)` 检查来标识回溯，并使用 `Exceptions.unwrapMultipleExcludingTracebacks(Throwable)` 将其排除在展开之外。
+
+我们在这里以检测的形式处理，而创建堆栈追踪的代价是非常高的。这就是为什么这个调试功能只应该以可把控的方式激活，并只能当作最后的办法。
+
+[[checkpoint-alternative]]
+=== `checkpoint()` 替代方案
+
+调试模式是全局的，它影响到应用程序中的每一个操作符，并将其组装到 `Flux` 或 `Mono` 中。这样做的好处是允许事后调试：无论是什么错误，我们都可以获取更多的信息来调试。
+
+正如我们前面看到的，这种全局的能力是以牺牲性能（由于填充的堆栈跟踪的数量）为代价的。如果我们知道可能是某个操作符有问题，那么这个代价可以降低。但是，我们通常不知道哪个操作符出现了问题，除非我们明显地看到错误，看到自己丢失了组装信息，然后修改代码激活组装追踪，希望再次观察到相同的错误。
+
+在那种场景下，我们必须切换到调试模式，并做好准备以便更好地观察到第二次出现的错误，这一次捕获到所有额外的信息。
+
+如果你能识别出你在应用中组装的，且对其可用性至关重要的响应式链。那么你可以使用 `checkpoint()` 操作符将两种技术结合。
+
+你可以将此操作符链接到方法链中。`checkpoint` 操作符的工作原理与像钩子版本一样，但仅适用于特定链的链接。
+
+这里还有 `checkpoint(String)` 的另一种形式，能让你添加唯一的 `String` 标识符到组合的回溯。这样，就省略了堆栈追踪，并依靠描述来识别装配的位置。`checkpoint(String)` 较于普通的 `checkpoint` 代价要低。
+
+//片段在FluxOnAssemblyTest中
+`checkpoint(String)` 在其输出中（这搜索时会非常方便）包含了 “`light`” ，如下面例子所示：
+
+====
+----
+...
+	Suppressed: reactor.core.publisher.FluxOnAssembly$OnAssemblyException:
+Assembly site of producer [reactor.core.publisher.ParallelSource] is identified by light checkpoint [light checkpoint identifier].
+----
+====
+
+最后但并非最不重要的，如果你想要添加更通用的描述到检测点，但仍然依靠堆栈跟踪机制来识别装配的位置，你可以通过使用 `checkpoint("description", true)` 来强制执行该行为。我们现在又回到了回溯的初始信息，并添加了 `description`，如下例所示：
+
+====
+----
+Assembly trace from producer [reactor.core.publisher.ParallelSource], described as [descriptionCorrelation1234] : <1>
+	reactor.core.publisher.ParallelFlux.checkpoint(ParallelFlux.java:215)
+	reactor.core.publisher.FluxOnAssemblyTest.parallelFluxCheckpointDescriptionAndForceStack(FluxOnAssemblyTest.java:225)
+Error has been observed by the following operator(s):
+	|_	ParallelFlux.checkpoint ⇢ reactor.core.publisher.FluxOnAssemblyTest.parallelFluxCheckpointDescriptionAndForceStack(FluxOnAssemblyTest.java:225)
+----
+<1> `descriptionCorrelation1234` 是 `checkpont` 中提供的描述。
+====
+
+该描述可以是一个静态的标识符或用户可读的描述，也可以是更广泛的相关ID（例如，在HTTP请求的情况下，来自于一个请求头的）。
+
+NOTE: 当全局调试和本地 `checkpoint()` 都启用时，检测点的快照堆栈作为简短的错误输出附加到观察操作符图之后，并遵循相同的声明性顺序。
+
+[[reactor-tools-debug]]
+== 可生产的全局调试
+Reactor工程自带了一个独立的Java代理，可以增强你的代码并添加调试信息，而不需要花费捕获每个操作符调用的堆栈追踪的代价。其行为类似于<<debug-activate>>，但是没有运行时的性能开销。
+
+要在你的应用程序使用它，必须将其添加为依赖型。
+
+下面的例子显示了如何在Maven中添加 `reactor-tools` 依赖项：
+
+.reactor-tools in Maven, in `<dependencies>`
+====
+[source,xml]
+----
+<dependency>
+    <groupId>io.projectreactor</groupId>
+    <artifactId>reactor-tools</artifactId>
+    <1>
+</dependency>
+----
+<1> 如果你使用了<<getting,BOM>>，你不需要指定 `<version>`。
+====
+
+下面的例子显示了如何在Gradle中添加 `reactor-tools` 依赖型：
+
+.reactor-tools in Gradle, amend the `dependencies` block
+====
+[source,groovy]
+----
+dependencies {
+   compile 'io.projectreactor:reactor-tools'
+}
+----
+====
+
+当然需要显式地初始化它：
+====
+[source,java]
+----
+ReactorDebugAgent.init();
+----
+====
+
+TIP: 由于该工具会在加载的时候会增强你的类，所以最好把它放在main(String[])方法中的所有其它功能之前：
+====
+[source,java]
+----
+public static void main(String[] args) {
+    ReactorDebugAgent.init();
+    SpringApplication.run(Application.class, args);
+}
+----
+====
+
+如果你不能及早地（例如在测试中）运行初始化，你也可以对现有的类进行重新处理：
+====
+[source,java]
+----
+ReactorDebugAgent.init();
+ReactorDebugAgent.processExistingClasses();
+----
+====
+
+WARNING: 请注意，由于需要迭代所有加载的类并应用转换，重新处理需要花费几秒的时间。仅在一些调用位置没有增强时使用它。
+
+=== 局限性
+`ReactorDebugAgent` 作为一个Java代理实现，并使用 https://bytebuddy.net/#/[ByteBuddy] 执行自我附加。自我附加可能不适用某些JVM，请参考ByteBuddy的文档获取更多详细信息。
+
+== 记录序列
+
+除了堆栈追踪调试和分析之外，在工具包中有另外一个强大的工具是在异步序列中追踪和记录事件的能力。
+
+`log()` 操作符可以做到这一点。链接在序列中，能窥视它上游的每个 `Flux` 或 `Mono` 事件（包括 `onNext`，`onError` 和 `onComplete`以及订阅，取消和请求）。
+
+.A note on logging implementation
+****
+`log` 操作符使用 `Loggers` 工具类，它通过 `SLF4J` 提取常用的日志框架，如Log4J和Logback，如果SLF4J不可用时，则默认记录到控制台。
+
+控制台后备方案使用 `System.err` 用于 `WARN` 和 `ERROR` 日志级别，其它的都是 `System.out`。
+
+如果你更喜欢JDK的 `java.util.logging` 的后备方案，比如在3.0.x中，你可以通过将 `reactor.logging.fallback` 系统属性设置为 `JDK` 来得到。
+
+在所有的情况下，当在生产环境中记录日志时，*你应该注意配置底层日志框架尽量使用异步非阻塞的方式* -- 例如，Logback中的 `AsyncAppender` 或 Log4j 2中的 `AsyncLogger`。
+****
+
+例如，假设我们已经配置且激活了Logback，并配置了一条像 `range(1,10).take(3)` 这样的链。通过在 `take` 之前放置一个 `log`，我们可以深入了解其工作原理，以及它向上游传播什么样的事件，如下例所示：
+
+====
+[source,java]
+----
+Flux<Integer> flux = Flux.range(1, 10)
+                         .log()
+                         .take(3);
+flux.subscribe();
+----
+====
+
+这将打印出以下内容（通过日志记录的控制台附加器）：
+
+====
+----
+10:45:20.200 [main] INFO  reactor.Flux.Range.1 - | onSubscribe([Synchronous Fuseable] FluxRange.RangeSubscription) <1>
+10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | request(unbounded) <2>
+10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | onNext(1) <3>
+10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | onNext(2)
+10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | onNext(3)
+10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | cancel() <4>
+----
+
+在这里，除了记录器自己的格式（时间，线程，级别，消息），`log()` 操作符还可以用其自己的格式输出一些内容：
+
+<1> 如果你使用的操作符在链中多次出现，`reactor.Flux.Range.1` 是日志的自动分类。它可以让你区分哪个操作符的事件被记录（在这种情况下，是 `range`）。你可以通过 `log(String)` 方法签名使用自定义类别覆盖标识符，在几个分开的字符后，实际的事件被打印出来。这里，我们得到一次 `onSubscribe` 调用，一次 `request` 调用， 三次 `onNext` 和一次 `cancel` 调用。对于第一行， 在`onSubscribe` 中，我们得到了 `Subscriber` 的实现，通常是对应于操作符的具体实现。在方括号之间，我们得到额外的信息，包括操作符是否可以通过同步或异步结合进行自动优化。
+<2> 在第二行，我们可以看到，一个从下游向上传播的无界的请求。
+<3> 然后range连续发送三个值。
+<4> 在最后一行，我们看到 `cancel()`。
+====
+
+最后一行（4）是最有意思的。我们可以看到这里的 `take` 的作用。在看到足够多的元素发射后，将序列剪短。总而言之，一旦发射了用户请求的数量后，`take()` 就会导致源 `cancel()`。
