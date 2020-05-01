@@ -1,0 +1,952 @@
+[[advanced]]
+= 高级特性和概念
+
+本章涵盖了Reactor的高级特性和概念，包括以下内容：
+
+* <<advanced-mutualizing-operator-usage>>
+* <<reactor.hotCold>>
+* <<advanced-broadcast-multiple-subscribers-connectableflux>>
+* <<advanced-three-sorts-batching>>
+* <<advanced-parallelizing-parralelflux>>
+* <<scheduler-factory>>
+* <<hooks>>
+* <<context>>
+* <<null-safety>>
+* <<cleanup>>
+
+[[advanced-mutualizing-operator-usage]]
+== 互用操作符用法
+
+从简洁的代码角度来看，代码复用通常是一件好事。Reactor提供了一些可以帮助你重用和互用代码的方式，特别是对于你可能想在代码库中经常应用的操作符或操作符的组合。如果你想将操作符链作为配方，你可以创建一个操作符 “`食谱`” 的配方。
+
+=== 使用 `transform` 操作符
+
+`transform` 操作符可以让你将操作符链的一部分封装成一个函数。这个函数在组装时被应用到原始操作链上，使用封装的操作符来进行增强。这样做会将相同的操作应用于序列的所有订阅者，基本上相当于直接链接操作符。下面的代码显示了一个例子：
+
+====
+[source,java]
+----
+Function<Flux<String>, Flux<String>> filterAndMap =
+f -> f.filter(color -> !color.equals("orange"))
+      .map(String::toUpperCase);
+
+Flux.fromIterable(Arrays.asList("blue", "green", "orange", "purple"))
+	.doOnNext(System.out::println)
+	.transform(filterAndMap)
+	.subscribe(d -> System.out.println("Subscriber to Transformed MapAndFilter: "+d));
+----
+====
+
+下图显示了 `transform` 操作符如何封装流：
+
+image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-transform.png[转换操作符：封装流]
+
+前面的例子产生以下输出：
+
+====
+----
+blue
+Subscriber to Transformed MapAndFilter: BLUE
+green
+Subscriber to Transformed MapAndFilter: GREEN
+orange
+purple
+Subscriber to Transformed MapAndFilter: PURPLE
+----
+====
+
+=== 使用 `transformDeferred` 操作符
+
+`transformDeferred` 操作符类似于 `transform`，也可以让你将操作符封装在一个函数中。主要区别在于，此函数是 _基于每个订阅者_ 应用于原始序列。这意味着这个函数实际上可以为每个订阅者（通过维护某种状态）产生不同的操作符链。下面的代码显示了一个例子：
+
+====
+[source,java]
+----
+AtomicInteger ai = new AtomicInteger();
+Function<Flux<String>, Flux<String>> filterAndMap = f -> {
+	if (ai.incrementAndGet() == 1) {
+return f.filter(color -> !color.equals("orange"))
+        .map(String::toUpperCase);
+	}
+	return f.filter(color -> !color.equals("purple"))
+	        .map(String::toUpperCase);
+};
+
+Flux<String> composedFlux =
+Flux.fromIterable(Arrays.asList("blue", "green", "orange", "purple"))
+    .doOnNext(System.out::println)
+    .transformDeferred(filterAndMap);
+
+composedFlux.subscribe(d -> System.out.println("Subscriber 1 to Composed MapAndFilter :"+d));
+composedFlux.subscribe(d -> System.out.println("Subscriber 2 to Composed MapAndFilter: "+d));
+----
+====
+
+下图显示了 `transformDeferred` 操作符如何处理每个订阅者的转换：
+
+image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-compose.png[组合操作符：每个订阅者转换]
+
+上面的例子产生以下输出：
+
+====
+----
+blue
+Subscriber 1 to Composed MapAndFilter :BLUE
+green
+Subscriber 1 to Composed MapAndFilter :GREEN
+orange
+purple
+Subscriber 1 to Composed MapAndFilter :PURPLE
+blue
+Subscriber 2 to Composed MapAndFilter: BLUE
+green
+Subscriber 2 to Composed MapAndFilter: GREEN
+orange
+Subscriber 2 to Composed MapAndFilter: ORANGE
+purple
+----
+====
+
+[[reactor.hotCold]]
+== 热与冷
+
+到目前为止，我们已经认为所有的 `Flux`（和 `Mono`）都是一样的：它们都表示一个异步的数据序列，在订阅之前没有任何事情发生。
+
+但实际上，生产者有两大派系：热与冷。
+
+前面的描述适用于冷的这类生产者。它们会为每个订阅重新生成数据。如果没有创建订阅，数据永远不会被生成。
+
+考虑一个HTTP请求：每个新的订阅者触发一次HTTP调用，但是如果没有人对结果感兴趣，就不进行调用。
+
+另一方面，热的生产者不依赖于任何数量的订阅者。它们可能会立即开始发布数据，并在每当有一个新的 `Subscriber` 出现时（在这种情况下，当它订阅_后_，订阅者只能看到发出的新的元素）继续这样做。对于热的生产者来说，在订阅前确实会发生 _一些事情_。
+
+Reactor中为数不多的热操作符的一个例子就是 `just`：在组装时直接获取值，然后向订阅它的任何人重新发出。再次类比于HTTP的调用，如果获取的数据是一次HTTP调用的结果，那么只有一次网络调用，即初始化 `just` 时。
+
+要将 `just` 转换成一个冷的生产者，你可以使用 `defer`。在我们的示例中，它将HTTP请求推迟到订阅的时候（并会导致对于每个新的订阅者有单独的网络调用）。
+
+NOTE: Reactor中的绝大多数热生产者扩展了 `Processor`。
+
+考虑另外两个例子。下面的代码显示的是第一个例子：
+
+====
+[source,java]
+----
+Flux<String> source = Flux.fromIterable(Arrays.asList("blue", "green", "orange", "purple"))
+                          .map(String::toUpperCase);
+
+source.subscribe(d -> System.out.println("Subscriber 1: "+d));
+source.subscribe(d -> System.out.println("Subscriber 2: "+d));
+----
+====
+
+第一个例子产生以下输出：
+
+====
+----
+Subscriber 1: BLUE
+Subscriber 1: GREEN
+Subscriber 1: ORANGE
+Subscriber 1: PURPLE
+Subscriber 2: BLUE
+Subscriber 2: GREEN
+Subscriber 2: ORANGE
+Subscriber 2: PURPLE
+----
+====
+
+下图显示了重播行为：
+
+image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-cold.png[Replaying behavior]
+
+两个订阅者都能捕获所有的四种颜色，因为每个订阅者都会导致操作符在 `Flux` 上定义的过程运行。
+
+将第一个例子和第二个例子进行比较，如下代码所示：
+
+====
+[source,java]
+----
+DirectProcessor<String> hotSource = DirectProcessor.create();
+
+Flux<String> hotFlux = hotSource.map(String::toUpperCase);
+
+
+hotFlux.subscribe(d -> System.out.println("Subscriber 1 to Hot Source: "+d));
+
+hotSource.onNext("blue");
+hotSource.onNext("green");
+
+hotFlux.subscribe(d -> System.out.println("Subscriber 2 to Hot Source: "+d));
+
+hotSource.onNext("orange");
+hotSource.onNext("purple");
+hotSource.onComplete();
+----
+====
+
+第二个例子产生以下输出：
+
+====
+----
+Subscriber 1 to Hot Source: BLUE
+Subscriber 1 to Hot Source: GREEN
+Subscriber 1 to Hot Source: ORANGE
+Subscriber 2 to Hot Source: ORANGE
+Subscriber 1 to Hot Source: PURPLE
+Subscriber 2 to Hot Source: PURPLE
+----
+====
+
+下图显示了订阅是如何广播的：
+
+image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-hot.png[广播订阅]
+
+订阅者1捕获了所有四种颜色。在前面两种颜色产生后创建订阅者2，只捕获了后面两种颜色。这种差异导致了 `ORANGE` 和 `PURPLE` 的输出加倍。Flux上操作符所描述的过程，无论订阅何时被添加，都会运行。
+
+[[advanced-broadcast-multiple-subscribers-connectableflux]]
+== 使用 `ConnectableFlux` 向多个订阅者广播
+
+有时，你可能不想延迟，只是推迟某些处理到订阅者的订阅时候，而实际上是想让他们中的几个聚合，然后触发订阅和数据生成。
+
+这就是 `ConnectableFlux` 的作用。`Flux` API 中包含了两个主要的模式，可以返回一个 `ConnectableFlux`：`publish` 和 `replay`。
+
+* `publish` 尝试动态地维护各个订阅者的需求，在背压方面，通过转发这些请求给源。最值得注意的是，如果任何订阅者有一个挂起的请求“0”，`publish` 将暂停向源的请求。
+* `replay` 缓冲第一次订阅开始的数据，直到达到可配置的限制（在时间和缓冲区大小上）。它将重新发出数据给后续订阅者。
+
+`ConnectableFlux` 提供了额外的方法来管理下游订阅与原始源的订阅。这些额外方法包括：
+
+* 一旦对 `Flux` 达到足够多的订阅，可以手动调用 `connect()`。这样将触发对上游源的订阅。
+* 一旦达到 `n` 个订阅，`autoConnect(n)` 可以自动做相同的事情。
+* `refCount(n)` 不仅自动跟踪到来的订阅，而且还可以检测这些订阅何时被取消。如果跟踪的订阅者不足，则源将 ”`disconnected`“，如果稍后有额外的订阅者出现，则将导致对源产生新的订阅。
+* `refCount(int, Duration)` 增加了一个“`宽限期`”。一旦跟踪的订阅者数量太低，它会在断开源之前等待 `Duration` 持续时间，有可能让足够多的新的订阅者进入并再次超过连接阀值。
+
+请看下面的例子：
+
+====
+[source,java]
+----
+Flux<Integer> source = Flux.range(1, 3)
+                           .doOnSubscribe(s -> System.out.println("subscribed to source"));
+
+ConnectableFlux<Integer> co = source.publish();
+
+co.subscribe(System.out::println, e -> {}, () -> {});
+co.subscribe(System.out::println, e -> {}, () -> {});
+
+System.out.println("done subscribing");
+Thread.sleep(500);
+System.out.println("will now connect");
+
+co.connect();
+----
+====
+
+前面的代码产生以下输出：
+
+====
+----
+done subscribing
+will now connect
+subscribed to source
+1
+1
+2
+2
+3
+3
+----
+====
+
+下面的代码使用 `autoConnect`：
+
+====
+[source,java]
+----
+Flux<Integer> source = Flux.range(1, 3)
+                           .doOnSubscribe(s -> System.out.println("subscribed to source"));
+
+Flux<Integer> autoCo = source.publish().autoConnect(2);
+
+autoCo.subscribe(System.out::println, e -> {}, () -> {});
+System.out.println("subscribed first");
+Thread.sleep(500);
+System.out.println("subscribing second");
+autoCo.subscribe(System.out::println, e -> {}, () -> {});
+----
+====
+
+前面的代码产生下面的输出：
+
+====
+----
+subscribed first
+subscribing second
+subscribed to source
+1
+1
+2
+2
+3
+3
+----
+====
+
+[[advanced-three-sorts-batching]]
+== 三种批处理
+
+当你有很多的元素并且想把它们分批的时候，在Reactor中，你大致有三个解决方案：分组，窗口化和缓冲。这三者概念上接近，因为它们将一个 `Flux<T>` 重新分配到一个集合中。分组和窗口化会创建一个`Flux<Flux<T>>`，而缓冲则将聚合到一个 `Collection<T>`。
+
+=== 用 `Flux<GroupedFlux<T>>` 分组
+
+分组是将源的 `Flux<T>` 分成多个批次的行为，每个批次匹配一个键。
+
+相关的操作符是 `groupBy`。
+
+每个组都表示为一个 `GroupedFlux<T>`，你可以通过调用其 `key()` 方法来得到键。
+
+组的内容的连续性是没有必要的。一旦一个源的元素产生一个新的键，键的组就会被打开，并且与该键匹配的元素就会出现在该组中（几个组可以同时打开）。
+
+这意味着组：
+
+ 1. 总是不相交的（一个源元素只属于一个组）。
+ 2. 可以包含原始序列中不同位置的元素。
+ 3. 永不为空。
+
+下面的例子按值是偶数还是奇数进行分组：
+
+====
+[source,java]
+----
+StepVerifier.create(
+	Flux.just(1, 3, 5, 2, 4, 6, 11, 12, 13)
+		.groupBy(i -> i % 2 == 0 ? "even" : "odd")
+		.concatMap(g -> g.defaultIfEmpty(-1) //if empty groups, show them
+				.map(String::valueOf) //map to string
+				.startWith(g.key())) //start with the group's key
+	)
+	.expectNext("odd", "1", "3", "5", "11", "13")
+	.expectNext("even", "2", "4", "6", "12")
+	.verifyComplete();
+----
+====
+
+WARNING: 分组最适合具有中等到较低组数的情况。还必须强制性地使用组（例如，通过 `flatMap`），以便 `groupBy` 继续从上游获取数据并为更多的组提供数据。有时，这两个约束成倍增加并导致挂起，例如当基数较高且 `flatMap` 消费组的并发性太低时。
+
+=== `Flux<Flux<T>>` 窗口化
+
+窗口化是将源 `Flux<T>` 根据大小，时间，定义边界的谓词或边界定义的 `Publisher` 的标准， 将源 `Flux<T>` 拆分为 _窗口_ 的操作。
+
+相关的操作符是 `window`，`windowTimeout`，`windowUntil`，`windowWhile` 和 `windowWhen`。
+
+与 `groupBy` 不同的是，后者是根据传入的键随机重叠，窗口（大多数时候）是按顺序打开的。
+
+不过，有些形式依然是可以重叠的。例如，在 `window(int maxSize, int skip)` 中，`maxSize` 参数是窗口关闭后的元素数，而 `skip` 参数是当新的窗口开启后源中元素的数量。如果 `maxSize > skip`，则会在前一个窗口关闭前打开一个新的窗口，然后两个窗口重叠。
+
+下面的例子显示的是重叠的窗口：
+
+====
+[source,java]
+----
+StepVerifier.create(
+	Flux.range(1, 10)
+		.window(5, 3) //overlapping windows
+		.concatMap(g -> g.defaultIfEmpty(-1)) //show empty windows as -1
+	)
+		.expectNext(1, 2, 3, 4, 5)
+		.expectNext(4, 5, 6, 7, 8)
+		.expectNext(7, 8, 9, 10)
+		.expectNext(10)
+		.verifyComplete();
+----
+====
+
+NOTE: 使用相反的配置（`maxSize` < `skip`），某些源的元素被丢弃，不属于任何窗口。
+
+在通过 `windowUntil` 和 `windowWhile` 进行基于谓词的窗口化的情况下，后续源的元素与谓词不匹配也可能会导致空窗口，如下例所示：
+
+====
+[source,java]
+----
+StepVerifier.create(
+	Flux.just(1, 3, 5, 2, 4, 6, 11, 12, 13)
+		.windowWhile(i -> i % 2 == 0)
+		.concatMap(g -> g.defaultIfEmpty(-1))
+	)
+		.expectNext(-1, -1, -1) //respectively triggered by odd 1 3 5
+		.expectNext(2, 4, 6) // triggered by 11
+		.expectNext(12) // triggered by 13
+		// however, no empty completion window is emitted (would contain extra matching elements)
+		.verifyComplete();
+----
+====
+
+=== 用 `Flux<List<T>>` 缓冲
+
+缓冲类似于窗口化，但有以下的不同：与产生 _窗口_（每个都是一个 `Flux<T>`）相反，它产生 _缓冲区_（即 `Collection<T>`-- 默认情况下为 `List<T>`）。
+
+用于缓冲的操作符与窗口化操作符相同：`buffer`，`bufferTimeout`，`bufferUntil`，`bufferWhile`，和 `bufferWhen`。
+
+当相应的窗口化操作符打开一个窗口时，缓冲操作符创建一个新的集合并开始向其中添加元素。当窗口关闭时，缓冲操作符发出集合。
+
+缓冲也可以导致源元素丢弃或具有重叠的缓冲区，如下例所示：
+
+====
+[source,java]
+----
+StepVerifier.create(
+	Flux.range(1, 10)
+		.buffer(5, 3) //overlapping buffers
+	)
+		.expectNext(Arrays.asList(1, 2, 3, 4, 5))
+		.expectNext(Arrays.asList(4, 5, 6, 7, 8))
+		.expectNext(Arrays.asList(7, 8, 9, 10))
+		.expectNext(Collections.singletonList(10))
+		.verifyComplete();
+----
+====
+
+与在窗口化中不同，`bufferUntil` 和 `bufferWhile` 不会发出空的缓冲区，如下例所示：
+
+====
+[source,java]
+----
+StepVerifier.create(
+	Flux.just(1, 3, 5, 2, 4, 6, 11, 12, 13)
+		.bufferWhile(i -> i % 2 == 0)
+	)
+	.expectNext(Arrays.asList(2, 4, 6)) // triggered by 11
+	.expectNext(Collections.singletonList(12)) // triggered by 13
+	.verifyComplete();
+----
+====
+
+[[advanced-parallelizing-parralelflux]]
+== 用 `ParallelFlux` 并行化工作
+
+如今，随着多核架构变得普遍，能够轻松实现并行化工作很重要。Reactor提供了一种特殊的 `ParallelFlux`，它暴露了为并行化而优化的操作符，从而帮助我们实现了这一点。
+
+要获得一个 `ParallelFlux`，你可以在任何 `Flux` 上使用 `parallel()` 操作符。该方法本身并不会使工作并行化。而是将负载划分为 “`轨道`”（默认情况下，轨道的数量与CPU的核数相同）。
+
+为了告诉生成的 `ParallelFlux` 在哪里运行每个轨道（并且，通过扩展，并行化地运行轨道），你必须使用 `runOn(Scheduler)`。注意有一个推荐的专用的 `Scheduler` 用于并行化工作：`Schedulers.parallel()`。
+
+比较一下下面两个例子：
+
+====
+[source,java]
+----
+Flux.range(1, 10)
+    .parallel(2) //<1>
+    .subscribe(i -> System.out.println(Thread.currentThread().getName() + " -> " + i));
+----
+<1> 我们强制使用多个轨道而不是依赖于CPU的核数。
+====
+
+====
+[source,java]
+----
+Flux.range(1, 10)
+    .parallel(2)
+    .runOn(Schedulers.parallel())
+    .subscribe(i -> System.out.println(Thread.currentThread().getName() + " -> " + i));
+----
+====
+
+第一个例子产生以下输出：
+
+====
+----
+main -> 1
+main -> 2
+main -> 3
+main -> 4
+main -> 5
+main -> 6
+main -> 7
+main -> 8
+main -> 9
+main -> 10
+----
+====
+
+第二个例子正确地并行化在两个线程上，如下面的输出所示：
+
+====
+----
+parallel-1 -> 1
+parallel-2 -> 2
+parallel-1 -> 3
+parallel-2 -> 4
+parallel-1 -> 5
+parallel-2 -> 6
+parallel-1 -> 7
+parallel-1 -> 9
+parallel-2 -> 8
+parallel-2 -> 10
+----
+====
+
+如果你一旦并行处理你的序列，你想要恢复为“`正常`”的 `Flux`，并按顺序的方式应用其余的操作符链，则可以使用 `ParallelFlux` 上的 `sequential()` 方法。
+
+注意，如果你用一个 `Subscriber` `订阅` `ParallelFlux`，则会隐式的应用 `sequential()`，但当使用基于lambda形式的 `订阅` 则不能。
+
+还要注意的是， `subscribe(Subscriber<T>)` 合并了所有的轨道，而 `subscribe(Consumer<T>)` 运行所有的轨道。如果 `subscribe()` 方法具有lambda，则每个lambda执行的次数与轨道执行的次数相同。
+
+你还可以通过 `groups()` 方法来访问各个轨道或 “`groups`” 作为一个 `Flux<GroupedFlux<T>>`，并通过 `composeGroup()` 方法对其应用其他的操作符。
+
+[[scheduler-factory]]
+== 替换默认的 `Schedulers`
+
+正如我们在<<schedulers>>一节中所描述的那样，Reactor核心自带了几个 `Scheduler` 实现。虽然你总是可以通过 `new*` 工厂方法创建新的实例，但每个 `Scheduler` 风格都有一个默认的单例实例，可直接通过工厂方法（例如 `Schedulers.boundedElastic()` 与 `Schedulers.newBoundedElastic(...)`）访问。
+
+这些默认的实例是操作符使用的，如果没有明确指定一个 `Scheduler` 时，需要一个 `Scheduler` 实例。例如，`Flux#delayElements(Duration)` 使用 `Schedulers.parallel()` 实例。
+
+但是，在某些情况下，你可能需要以交叉的方式使用其他东西来更改这些默认实例，而不必确保你调用的每个操作符都有你指定的 `Scheduler` 作为参数。一个例子就是通过包装实际的调度器来测量每个调度任务花费的时间，以进行检测的目的。换句话说，你可能想要改变默认的 `Schedulers`。
+
+可以通过 `Schedulers.Factory` 类来更改默认的调度器。默认情况下，`Factory` 通过类似的名称方法创建所有标准的 `Scheduler`。你可以用你的自定义实现覆盖这些方法。
+
+此外，该工厂还暴露了另一种自定义方法：`decorateExecutorService`。它在 `ScheduledExecutorService`（即使是非默认实例，例如通过调用 `Schedulers.newParallel()`创建的）所支持的每个响应式核心 `Scheduler` 创建过程中调用。
+
+这允许你调整要使用的 `ScheduledExecutorService`：默认的是暴露为 `Supplier`，并根据所配置的 `Scheduler` 的类型，你可以选择完全绕过该supplier并返回你自己的实例，或可以通过 `get()` 得到默认实例并将其包装。
+
+IMPORTANT: 一旦你创建了满足你需要的 `Factory`，你必须通过调用 `Schedulers.setFactory(Factory)` 来对其进行设置。
+
+最后，在 `Schedulers` 中还有最后一个可定制的钩子：`onHandleError`。每当提交到 `Scheduler` 的 `Runnable` 任务抛出 `Exception`（注意，如果为运行任务的 `线程` 设置了 `UncaughtExceptionHandler` 处理器，则处理器和钩子都会被调用）时调用。
+
+[[hooks]]
+== 使用全局钩子
+
+Reactor还有另一类可配置的回调，Reactor操作符在各种情况下都会调用它们。它们都被设置在 `Hooks` 类中，分为三类：
+
+* <<hooks-dropping>>
+* <<hooks-internal>>
+* <<hooks-assembly>>
+
+[[hooks-dropping]]
+=== 删除钩子
+
+当源操作符不符合响应式流规范时，删除钩子将会被调用。这些错误超出了正常的执行路径（即，它们不能通过 `onError` 传播）。
+
+通常，尽管之前已经调用了 `onCompleted`，`Publisher` 也会在操作符上调用 `onNext`。在这种情况下，`onNext` 的值将会被删除。对于无关的 `onError` 信号也是如此。
+
+相应的钩子 `onNextDropped` 和 `onErrorDropped`，允许你对这些删除提供一个全局的 `Consumer`。例如，如果需要的话（因为不会到达响应式链的其他部分），你可以使用它来记录删除和清理与某个值相关的资源。
+
+连续设置两次钩子是附加的：调用你提供的每个消费者。可以使用 `Hooks.resetOn*Dropped()` 方法将钩子完全重置为默认值。
+
+[[hooks-internal]]
+=== 内部错误钩子
+
+在执行 `onNext`，`onError`，和 `onComplete` 方法时抛出意外的 `Exception` 时，操作符将调用 `onOperatorError` 钩子。
+
+与前一类不同，这仍然是在正常的执行路径内。一个典型的例子就是带有map函数的 `map` 操作符抛出 `Exception`（例如，除以零）。在这一点上，仍然可以通过平常的 `onError` 方式，这正是操作符需要做的。
+
+首先，它通过 `onOperatorError` 传递 `Exception`。这个钩子可以让你检查错误（以及相关的导致错误的值）并更改 `Exception`。当然，你可以在一旁做一些事情，比如记录日志并返回原始的 `Exception`。
+
+注意，你可以多次设置 `onOperatorError` 钩子。可以为特定的 `BiFunction` 提供一个 `String` 标识符，后续不同键的调用将这些函数连接起来，这些函数都会被执行。另一方面，重复使用同一个键两次可以让你替换之前设置过的函数。
+
+因此，可以完全重置（通过使用 `Hooks.resetOnOperatorError()`）钩子的默认行为或只对指定的 `key` 进行部分重置（通过使用 `Hooks.resetOnOperatorError(String)`）。
+
+[[hooks-assembly]]
+=== 组装钩子
+
+这些钩子和操作符的生命周期紧密相连。当一个操作符链组装（即实例化）时被调用。`onEachOperator` 通过返回不同的 `Publisher` 允许你动态改变组装在链中的每个操作符。`onLastOperator` 也是类似的，除了仅在链的最后一个操作符即 `订阅` 调用之前被调用。
+
+如果你想要用横切 `Subscriber` 实现来装饰所有的操作符，你可以研究一下 `Operators#lift*` 方法，以帮助你处理各种类型的Reactor的 `Publishers`（`Flux`，`Mono`，`ParallelFlux`，`GroupedFlux` 和 `ConnectableFlux`），以及它们的 `Fuseable` 版本。
+
+像 `onOperatorError` 一样，这些钩子是累积的，可以用一个键来标识。它们也可以被部分或全部重置。
+
+=== 预设钩子
+
+`Hooks` 工具类提供了两个预设的钩子。你可以通过调用相应的方法来选择性的替换默认行为，而不是自己定义钩子：
+
+* `onNextDroppedFail()`：`onNextDropped` 用于抛出一个 `Exceptions.failWithCancel()` 异常。它现在默认记录在调试级别删除的值。要回到以前的默认抛出行为，使用 `onNextDroppedFail()`。
+
+* `onOperatorDebug()`：此方法会激活 <<debug-activate,debug mode>>。它与 `onOperatorError` 钩子紧密相连，因此调用 `resetOnOperatorError()` 也能重置它。因为它在内部使用了一个特定的键，你也可以通过使用  `resetOnOperatorDebug()` 单独重置它。
+
+
+[[context]]
+== 为响应式序列添加上下文
+
+从命令式编程观点转换到响应式编程思维遇到的重大技术挑战之一在于如何应对线程化。
+
+与你可能习惯的命令式编程相反，在响应式编程中，你可以使用 `Thread` 处理几个大致同时（实际上，在非阻塞的锁步）运行的异步序列。执行也可以很容易且经常从一个线程跳到另一个线程。
+
+这种约定对于使用依赖于线程模型使得更 `稳定` 的特性的开发者相当困难，例如 `ThreadLocal`。因为它可以让你把数据与线程关联起来，但在响应式上下文中使用它就变得很棘手。因此，依赖于 `ThreadLocal` 的库与Reactor一起使用时，至少带来了新的挑战。最糟糕的是，它们不能工作或者甚至失败。使用Logback的MDC来存储并记录日志相关性ID就是这种情况的一个典型例子。
+
+使用 `ThreadLocal` 的通常解决方法是通过使用（例如） `Tuple2<T, C>` 按顺序将上下文的数据 `C` 沿业务数据 `T` 移动。这确实看起来不好，并且将正交关系（上下文数据）泄露到方法和 `Flux` 签名中。
+
+从 `3.1.0` 版本开始，Reactor自带了类似于 `ThreadLocal` 的一个高级功能，但可以应用于 `Flux` 或 `Mono` 而不是 `Thread`。这个特性称为 `Context`。
+
+为了说明它是什么样子的，下面的例子同时从 `Context` 写入和获取：
+
+====
+[source,java]
+----
+String key = "message";
+Mono<String> r = Mono.just("Hello")
+                .flatMap( s -> Mono.subscriberContext()
+                                   .map( ctx -> s + " " + ctx.get(key)))
+                .subscriberContext(ctx -> ctx.put(key, "World"));
+
+StepVerifier.create(r)
+            .expectNext("Hello World")
+            .verifyComplete();
+----
+====
+
+在下面的章节中，我们将介绍 `Context` 以及如何使用它，以便你最终能够理解前面的例子。
+
+IMPORTANT: 这是一个更适合库开发人员的高级功能。它需要充分理解 `Subscription` 的生命周期，并且用于负责订阅的库。
+
+[[context.api]]
+=== `Context` API
+
+`Context` 是一个类似于 `Map` 的接口。它存储键值对，并允许你根据键获取你存储的值。更具体地说：
+
+* 键和值都属于 `Object` 类型，因此一个 `Context` 实例可以包含来源于不同库和源的任意数量且有巨大差异的值。
+* `Context` 是不可更改的。
+* 使用 `put(Object key, Object value)` 存储一个键值对，返回一个新的 `Context` 实例。你可以通过使用 `putAll(Context)` 将两个上下文合并到一个新的上下文中。
+* 你可以通过 `hasKey(Object key)` 检查键是否存在。
+* 使用 `getOrDefault(Object key, T defaultValue)` 来获取值（强转为 `T`）或如果 `Context` 实例没有该键则返回默认值。
+* 使用 `getOrEmpty(Object key)` 获得一个 `Optional<T>`（`Context` 实例尝试强转存储值为 `T`）。
+* 使用 `delete(Object key)` 来删除与某个键相关联的值，返回一个新的 `Context`。
+
+[TIP]
+====
+当你创建一个 `Context` 时，可以通过使用静态的 `Context.of` 方法创建最多5个预值键值对的 `Context` 实例。它们取2，4，6，8或10个 `Object` 实例，每对 `Object` 实例都是要添加到 `Context` 的键值对。
+
+另外，你也可以通过使用 `Context.empty()` 创建一个空的 `Context`。
+====
+
+[[context.write]]
+=== 将 `Context` 绑定到 `Flux` 并编写
+
+为了使 `Context` 有用，它必须与一个特定的序列绑定，并且可以被链中的每个操作符访问。注意，操作符必须是Reactor的原生操作符，因为 `Context` 是Reactor所特有的。
+
+实际上，`Context` 与链中的每个 `Subscriber` 所绑定。它使用 `Subscription` 传播机制使其在每个操作符上都可用，从最后的 `subscribe` 开始向上移动。
+
+为了填充只能在订阅时完成的 `Context`，你需要使用 `subscriberContext` 操作符。
+
+`subscriberContext(Context)` 合并你提供的 `Context` 和来自下游（记住，`Context` 是从链的底部向上传播的）的 `Context`。这是通过调用 `putAll` 完成的，从而产生一个新的上游 `Context`。
+
+TIP: 你也可以使用更高级的 `subscriberContext(Function<Context, Context>)`。它从下游接收 `Context` 的状态，它允许你根据需要增加或删除值，并返回新的 `Context` 来使用。你甚至可以决定返回一个完全不同的实例，尽管实际上不建议（这样做可能会影响到依赖于 `Context` 的第三方库）这样做。
+
+[[context.read]]
+=== 读取 `Context`
+
+一旦你填充了一个 `Context`，你就可以检索数据。在大多数情况下，将信息放到 `Context` 的职责是在最终用户这边，而利用这些信息是第三方库中，因为这些库通常在客户端代码的上游。
+
+从上下文中读取数据的工具是 `Mono.subscriberContext()` 静态方法。
+
+=== 简单的 `Context` 示例
+
+本节中的示例是为了更好地理解一些使用 `Context` 的注意事项。
+
+首先，我们回顾一下我们引言中的简单示例，如下示例所示：
+
+====
+[source,java]
+----
+String key = "message";
+Mono<String> r = Mono.just("Hello")
+                .flatMap( s -> Mono.subscriberContext() //<2>
+                                   .map( ctx -> s + " " + ctx.get(key))) //<3>
+                .subscriberContext(ctx -> ctx.put(key, "World")); //<1>
+
+StepVerifier.create(r)
+            .expectNext("Hello World") //<4>
+            .verifyComplete();
+----
+<1> 操作符链以 `subscriberContext(Function)` 调用结束，该调用以 `"message"` 为键，将 `"World"` 放到 `Context` 中。
+<2> 我们对源元素进行 `flatMap`，用 `Mono.subscriberContext()` 具体化 `Context`。
+<3> 然后，我们用 `map` 来提取与 `"message"` 相关联的数据，并将其与原来的值进行拼接。
+<4> 由此产生对 `Mono<String>` 发出 `"Hello World"`。
+====
+
+IMPORTANT: 上面的数字与实际的行顺序没有关系。它代表的是执行顺序。即使 `subscriberContext` 是链的最后一部分，它仍然是最先被执行（由于它订阅时间性质以及订阅信号从下至上流动的事实）的那个。
+
+IMPORTANT: 在你的操作符链中，写入 `Context` 和读取 `Context` 的相对位置是很重要的。`Context` 是不可变的，其内容只能被它上面的操作符看到，如下面的例子：
+
+====
+[source,java]
+----
+String key = "message";
+Mono<String> r = Mono.just("Hello")
+                     .subscriberContext(ctx -> ctx.put(key, "World")) //<1>
+                     .flatMap( s -> Mono.subscriberContext()
+                                        .map( ctx -> s + " " + ctx.getOrDefault(key, "Stranger")));  //<2>
+
+StepVerifier.create(r)
+            .expectNext("Hello Stranger") //<3>
+            .verifyComplete();
+----
+<1> 在链中写入 `Context` 的位置太在上面了。
+<2> 因此，在 `flatMap` 中，这里没有我们键关联的值。而是使用了一个默认值。
+<3> 由此产生的 `Mono<String>` 发出 `"Hello Stranger"`。
+====
+
+下面的例子还演示了 `Context` 的不可变特性，以及 `Mono.subscriberContext()` 如何始终返回由 `subscriberContext` 调用设置的 `Context`：
+
+====
+[source,java]
+----
+String key = "message";
+
+Mono<String> r = Mono.subscriberContext() // <1>
+	.map( ctx -> ctx.put(key, "Hello")) // <2>
+	.flatMap( ctx -> Mono.subscriberContext()) // <3>
+	.map( ctx -> ctx.getOrDefault(key,"Default")); // <4>
+
+StepVerifier.create(r)
+	.expectNext("Default") // <5>
+	.verifyComplete();
+----
+<1> 我们将 `Context` 具体化
+<2> 在 `map` 中，我们试图将其转换
+<3> 我们在 `flatMap` 中重新实现了 `Context`
+<4> 我们尝试在 `Context` 中读取键
+<5> 键的值没有设为 `Hello`
+====
+
+同样，在多次尝试将同一个键写入 `Context` 的情况下，写入的相对顺序也很重要。读取 `Context` 的操作符会看到最接近它们设置的值，如下例所示：
+
+====
+[source,java]
+----
+String key = "message";
+Mono<String> r = Mono.just("Hello")
+                .flatMap( s -> Mono.subscriberContext()
+                                   .map( ctx -> s + " " + ctx.get(key)))
+                .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<1>
+                .subscriberContext(ctx -> ctx.put(key, "World")); //<2>
+
+StepVerifier.create(r)
+            .expectNext("Hello Reactor") //<3>
+            .verifyComplete();
+----
+<1> 尝试写入键 `"message"`。
+<2> 另一次尝试写入键 `"message"`。
+<3> `map` 只看到了最接近它（在它下面）设置的值：`"Reactor"`。
+====
+
+在前面的例子中，`Context` 在订阅期间被填充了 `World`。然后订阅信号向上移动，另一个写操作发生了。这就产生了第二个不可变的 `Context`，其值为 `"Reactor"`。之后，数据开始流动。`flatMap` 看到离他最近的 `Context`，也就是我们的第二个 `Context`，其值为 `"Reactor"`。
+
+你可能会想知道，`Context` 是否会随着数据信号一起传播。如果是那种情况下的话，再在这两个写操作之间放置另一个 `flatMap`，那么就会使用最上面的 `Context`。但事实并未如此，下面的例子就证明了这一点：
+
+====
+[source,java]
+----
+String key = "message";
+Mono<String> r = Mono.just("Hello")
+                     .flatMap( s -> Mono.subscriberContext()
+                                        .map( ctx -> s + " " + ctx.get(key))) //<3>
+                     .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<2>
+                     .flatMap( s -> Mono.subscriberContext()
+                                        .map( ctx -> s + " " + ctx.get(key))) //<4>
+                     .subscriberContext(ctx -> ctx.put(key, "World")); //<1>
+
+StepVerifier.create(r)
+            .expectNext("Hello Reactor World") //<5>
+            .verifyComplete();
+----
+<1> 第一次写操作。
+<2> 第二次写操作。
+<3> 第一个 `flatMap` 看到第二次写入的值。
+<4> 第二个 `flatMap` 将第一次的结果与第一次写入的值连接起来。
+<5> `Mono` 发出 `"Hello Reactor World"`。
+====
+
+原因是 `Context` 与 `Subscriber` 相关联，每个操作符通过下游的 `Subscriber` 来请求访问 `Context`。
+
+最后一个有趣的传播情况是将 `Context` 也被写到 `flatMap` 中，如下例所示：
+
+====
+[source,java]
+----
+String key = "message";
+Mono<String> r =
+        Mono.just("Hello")
+            .flatMap( s -> Mono.subscriberContext()
+                               .map( ctx -> s + " " + ctx.get(key))
+            )
+            .flatMap( s -> Mono.subscriberContext()
+                               .map( ctx -> s + " " + ctx.get(key))
+                               .subscriberContext(ctx -> ctx.put(key, "Reactor")) //<1>
+            )
+            .subscriberContext(ctx -> ctx.put(key, "World")); // <2>
+
+StepVerifier.create(r)
+            .expectNext("Hello World Reactor")
+            .verifyComplete();
+----
+<1> 这个 `subscriberContext` 不会影响到 `flatMap` 之外的任何东西。
+<2> 这个 `subscriberContext` 会影响到主序列的 `Context`。
+====
+
+在前面的例子中，最终发出的值为 `"Hello World Reactor"` 而不是 "Hello Reactor World"，因为写 `"Reactor"` 的 `subscriberContext` 是作为第二个 `flatMap` 的内部序列的一部分。因此，它不可见或通过主序列传播，且第一个 `flatMap` 也看不到它。传播和不可变性将创建中间内部序列的操作符（例如 `flatMap`）中的 `Context` 隔离。
+
+=== 完整的例子
+
+现在我们可以考虑一个更真实的例子，一个库从 `Context` 中读取信息：一个将 `Mono<String>` 作为 `PUT` 的数据源，但同时也会寻找一个特定的上下文键，以将相关的ID添加到请求头中的响应式HTTP客户端。
+
+从用户的角度来看，调用如下：
+
+====
+[source,java]
+----
+doPut("www.example.com", Mono.just("Walter"))
+----
+====
+
+为了传播一个相关的ID，它将调用如下：
+
+====
+[source,java]
+----
+doPut("www.example.com", Mono.just("Walter"))
+	.subscriberContext(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
+----
+====
+
+正如前面的代码片段所示，用户代码使用 `subscriberContext` 填充具有 `HTTP_CORRELATION_ID` 键值对的 `Context`。操作符的上游是由HTTP客户端库返回的 `Mono<Tuple2<Integer, String>>`（HTTP响应的简单表示）。所以它有效地将信息从用户代码传递给框架代码。
+
+下面的例子显示了从框架角度的模拟代码，读取上下文，找到相关ID并 "`构造请求`"。
+
+====
+[source,java]
+----
+static final String HTTP_CORRELATION_ID = "reactive.http.library.correlationId";
+
+Mono<Tuple2<Integer, String>> doPut(String url, Mono<String> data) {
+	Mono<Tuple2<String, Optional<Object>>> dataAndContext =
+			data.zipWith(Mono.subscriberContext() // <1>
+			                 .map(c -> c.getOrEmpty(HTTP_CORRELATION_ID))); // <2>
+
+	return dataAndContext
+			.<String>handle((dac, sink) -> {
+				if (dac.getT2().isPresent()) { // <3>
+					sink.next("PUT <" + dac.getT1() + "> sent to " + url + " with header X-Correlation-ID = " + dac.getT2().get());
+				}
+				else {
+					sink.next("PUT <" + dac.getT1() + "> sent to " + url);
+				}
+				sink.complete();
+			})
+			.map(msg -> Tuples.of(200, msg));
+}
+----
+<1> 通过 `Mono.subscriberContext()` 具体化 `Context`。
+<2> 提取相关ID键的值，作为 `Optional`。
+<3> 如果键存在于上下文中，则使用相关的ID作为头。
+====
+
+框架代码段用 `Mono.subscriberContext()` 压缩数据 `Mono`。为框架提供了 `Tuple2<String, Context>`，并且上下文中包含了来自下游（因为它位于直接订阅的路径）的 `HTTP_CORRELATION_ID` 条目。
+
+然后，框架代码使用 `map` 提取该键的 `Optional<String>`，如果该条目存在，它将传递的相关ID作为 `X-Correlation-ID` 头。这最后一部分由 `handle` 模拟。
+
+整个验证框架代码使用的相关ID的整个测试可以写成如下所示：
+
+====
+[source,java]
+----
+@Test
+public void contextForLibraryReactivePut() {
+	Mono<String> put = doPut("www.example.com", Mono.just("Walter"))
+			.subscriberContext(Context.of(HTTP_CORRELATION_ID, "2-j3r9afaf92j-afkaf"))
+			.filter(t -> t.getT1() < 300)
+			.map(Tuple2::getT2);
+
+	StepVerifier.create(put)
+	            .expectNext("PUT <Walter> sent to www.example.com with header X-Correlation-ID = 2-j3r9afaf92j-afkaf")
+	            .verifyComplete();
+}
+----
+====
+
+[[cleanup]]
+== 处理需要清理的对象
+
+在非常特殊的情况下，你的应用程序可能会处理那些一旦不再使用就需要某种形式清理的类型。这是一个高级的场景 -- 例如，当有引用计数对象或处理堆外对象时。Netty的 `ByteBuf` 就是一个很好的例子。
+
+为了确保对此类对象进行正确的清理，你需要基于 `Flux`-by-`Flux` 以及在几个全局钩子（参考 <<hooks>>）中对其进行说明：
+
+ * `doOnDiscard` `Flux`/`Mono` 操作符
+ * `onOperatorError` 钩子
+ * `onNextDropped` 钩子
+ * 操作符特定的处理器
+
+这是必要的，因为每个钩子都考虑到了特定的清理子集，用户可能希望（例如）除了在 `onOperatorError` 中的清理逻辑之外，还需要实现特定的错误处理逻辑。
+
+注意，有些操作符不太适合处理需要清理的对象。例如，`bufferWhen` 可以引入重叠的缓冲区，这意味着我们之前使用的已丢弃的 "`本地钩子`" 可能会将第一个缓冲区视为被丢弃，并清理其中的一个元素，而这个元素在第二个缓冲区中仍然有效。
+
+IMPORTANT: 为了便于清理，*所有这些钩子必须是幂等的*。在某些情况下，它们可能会被多次应用于同一对象。与执行类级别 `instanceOf` 检测的 `doOnDiscard` 操作符不同，全局的钩子处理的实例可以是任何 `Object`。区分哪些实例需要清理和不需要清理，取决于用户的实现。
+
+
+=== The `doOnDiscard` Operator or Local Hook
+=== `doOnDiscard` 操作符 或者本地钩子
+
+This hook has been specifically put in place for cleanup of objects that would otherwise never be exposed to user code.
+It is intended as a cleanup hook for flows that operate under normal circumstances (not malformed sources that push too many items, which is covered by `onNextDropped`).
+该钩子专门用于清理对象，否则这些对象将永远不会暴露给用户代码。它旨在用作在正常情况下（不是推送很多元素且被 `onNextDropped` 覆盖的错误的源）运行流的清理钩子。
+
+It is local, in the sense that it is activated through an operator and applies only to a given `Flux` or `Mono`.
+它是本地的，从某种意义上说它是通过操作符激活的，并且仅应用与给定的 `Flux` 或者 `Mono`。
+
+Obvious cases include operators that filter elements from upstream.
+These elements never reach the next operator (or final subscriber), but this is part of the normal path of execution.
+As such, they are passed to the `doOnDiscard` hook.
+Examples of when you might use the `doOnDiscard` hook include the following:
+明显的例子包括从上游过滤元素的操作符。这些元素永远不会到达下一个操作符（或者最终订阅者），但这是正常执行途经的一部分。因此，它们被传递到 `doOnDiscard` 钩子。何时可以使用 `doOnDiscard` 钩子的示例包括：
+
+* `filter`: Items that do not match the filter are considered to be "`discarded.`"
+* `filter`： 与过滤器不匹配的项被视为 “`已丢弃`”。
+* `skip`: Skipped items are discarded.
+* `skip`：跳过的项将被丢弃。
+* `buffer(maxSize, skip)` with `maxSize < skip`: A "`dropping buffer`" -- items in between buffers are discarded.
+* `buffer(maxSize, skip)` 与 `maxSize < skip`：“`删除的缓冲区`” -- 丢弃缓冲区之间的元素。
+
+But `doOnDiscard` is not limited to filtering operators, and is also used by operators that internally queue data for backpressure purposes.
+More specifically, most of the time, this is important during cancellation. An operator that prefetches data from its source and later drains to its subscriber upon demand could have un-emitted data when it gets cancelled.
+Such operators use the `doOnDiscard` hook during cancellation to clear up their internal backpressure `Queue`.
+但 `doOnDiscard` 不仅局限于过滤操作符，而且还被用于在内部对数据进行排队以达到背压目的的操作符。更具体地说，在大多数情况下，这在取消时很重要。从源中预先提取数据，然后按需发布到订阅者的操作符可能在被取消时还未发出数据。这样的操作符使用 `doOnDiscard` 钩子在取消时清理它们内部的背压 `队列`。
+
+WARNING: Each call to `doOnDiscard(Class, Consumer)` is additive with the others, to the extent that it is visible and used by only operators upstream of it.
+WARNING: 每次调用 `doOnDiscard(Class, Consumer)` 都会和其它操作符一起，以使其只能被其上游的操作符看到并使用。
+
+=== `onOperatorError` 钩子
+
+`onOperatorError` 钩子旨在以横向的方式修改错误（类似于AOP的捕获和重新抛出异常）。
+
+当在处理 `onNext` 信号期间发生错误时，将要发出的元素被传递给 `onOperatorError`。
+
+如果这种类型的元素需要清理，则需要在 `onOperatorError` 钩子中实现它，可能是在重写错误代码之上。
+
+=== `onNextDropped` 钩子
+
+对于格式不正确的 `Publishers`，在某些情况下，操作符可能在预期没有元素的情况下（通常是在收到 `onError` 或 `onComplete` 信号之后）接收到一个元素。在这种情况下，不期望的元素是 "`删除的`" -- 即传递给 `onNextDropped` 钩子。如果你有需要清理的类型，则必须在 `onNextDropped` 钩子中检测到这些类型，并在那里实现清理代码。
+
+=== 操作符特定的处理器
+
+一些处理缓冲区或将收集值作为其操作的一部分的操作符，有着特定的处理器，以处理所收集的数据不向下游传播的情况。如果你使用的此类操作符的类型需要清理，则需要在这些处理器中执行清理。
+
+例如，`distinct` 有这样一个回调，在操作符终止（或取消）时调用该回调函数，以便清除用于判断元素是否不同的集合。默认情况下，集合是一个 `HashSet`，清理的回调函数为 `HashSet::clear`。但是，如果处理的是引用计数的对象，你可能想把它更改为一个更复杂的处理器，能够在调用 `clear()` 之前 `release` 集合中的每个元素。
+
+
+[[null-safety]]
+== 空安全
+
+尽管Java不允许在其类型系统中表示null安全，但Reactor现在提供了注解来声明API的可空性，类似与Spring5提供的注解。
+
+Reactor使用这些注解，但是它们也可以用于任何基于Reactor的Java项目中来声明可空的API。方法体内使用的类型的可空性不在此功能范围之内。
+
+这些注解是用 https://jcp.org/en/jsr/detail?id=305[JSR 305] 进行元注解(一种被IntelliJ IDEA之类的工具支持的潜在JSR)，为Java开发人员提供与空安全相关的有用的警告，以避免运行时出现 `NullPointerException`。JSR 305 元注解允许IDE厂商以通用的方式提供空安全支持，而不必为Reactor注解提供硬编码支持。
+
+NOTE: 在Kotlin 1.1.5+ 中，不需要也不建议在你的项目类路径下依赖 JSR 305。
+
+它们也被Kotlin使用，Kotlin原生支持 https://kotlinlang.org/docs/reference/null-safety.html[空安全]。请看 <<kotlin-null-safety,这一节>> 了解更多详细信息。
+
+`reactor.util.annotation` 包中提供了以下注解：
+
+* https://projectreactor.io/docs/core/release/api/reactor/util/annotation/NonNull.html[`@NonNull`]：表示特定的参数，返回值或字段不能为 `null`。（在使用 `@NonNullApi` 的参数和返回值上不需要它）。
+* https://projectreactor.io/docs/core/release/api/reactor/util/annotation/Nullable.html[`@Nullable`]：表示参数，返回值或字段可以为 `null`。
+* https://projectreactor.io/docs/core/release/api/reactor/util/annotation/NonNullApi.html[`@NonNullApi`]：表示参数和返回值默认为非空的包级别注解。
+
+NOTE: 尚不支持泛型类型参数，变量参数和数组元素的可空性。请看 https://github.com/reactor/reactor-core/issues/878[issue #878] 获取最新信息。
