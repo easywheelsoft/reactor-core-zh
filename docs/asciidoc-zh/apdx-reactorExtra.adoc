@@ -1,0 +1,73 @@
+[[reactor-extra]]
+= Reactor-Extra
+
+对于 `reactor-core` 具有高级需求的用户，`reactor-extra` 模块包含了额外的操作符和工具集。
+
+由于这是一个单独的组件，你需要显式地将其添加到构建中。下面的例子显示了在Gradle中如何操作：
+
+====
+[source,groovy]
+----
+dependencies {
+     compile 'io.projectreactor:reactor-core'
+     compile 'io.projectreactor.addons:reactor-extra' <1>
+}
+----
+<1> 除了core模块外，还需要添加extra模块。关于使用BOM时不需要指定版本的原因，其它详细信息以及在Maven中的用法，请看 <<getting>>。
+====
+
+[[extra-tuples]]
+== `TupleUtils` 和函数式接口
+
+`reactor.function` 包含了补充Java 8 `Function`，`Predicate` 和 `Consumer` 的函数式接口，适用于三到八个值。
+
+`TupleUtils` 提供了静态方法。这些方法充当这些函数式接口的lambda与对应的 `Tuple` 上的类似接口之间的桥梁。
+
+这让你可以轻松地处理任何 `Tuple` 的独立部分，如下例所示：
+
+====
+[source,java]
+----
+.map(tuple -> {
+  String firstName = tuple.getT1();
+  String lastName = tuple.getT2();
+  String address = tuple.getT3();
+
+  return new Customer(firstName, lastName, address);
+});
+----
+====
+
+你可以将前面的例子改写如下：
+
+====
+[source,java]
+----
+.map(TupleUtils.function(Customer::new)); // <1>
+----
+<1> （因为 `Customer` 构造器符合 `Consumer3` 函数式接口签名）
+====
+
+[[extra-math]]
+== `MathFlux` 数学操作符
+
+`reactor.math` 包含了 `Flux` 特定版本的 `MathFlux`，提供了包括 `max`，`min`，`sumInt`，`averageDouble` 等数学操作符。
+
+[[extra-repeat-retry]]
+== 重复和重试工具
+
+`reactor.retry` 包含了帮助编写 `Flux#repeatWhen` 和 `Flux#retryWhen` 函数的工具集。入口点分别是 `Repeat` 和 `Retry` 接口中的工厂方法。
+
+你可以将这两个接口都用作为可变的构建器，并且它们可以正确的实现在对应的操作符中要使用的 `Function` 签名。
+
+从3.2.0开始，这些工具集提供的最高级的重试策略之一也是 `reactor-core` 主要模块的一部分。`Flux#retryBackoff` 操作符可作为指数退避来使用。
+
+
+[[extra-schedulers]]
+== 调度器
+
+Reactor-extra带有几个专门的调度器：
+
+* `ForkJoinPoolScheduler`（在 `reactor.scheduler.forkjoin` 包中）：使用Java的 `ForkJoinPool` 运行任务。
+* `SwingScheduler`（在 `reactor.swing` 包中）：在Swing UI事件循环线程 `EDT` 中运行任务。
+* `SwtScheduler`（在 `reactor.swing` 包中）：在SWT UI事件循环线程中运行任务。
