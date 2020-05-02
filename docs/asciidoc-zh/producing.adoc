@@ -12,7 +12,7 @@
 
 例如，你可以使用 `int` 作为状态：
 
-.Example of state-based `generate`
+.基于状态 `generate` 的示例
 ====
 [source,java]
 ----
@@ -50,7 +50,7 @@ Flux<String> flux = Flux.generate(
 
 你还可以使用可变的 `<S>`。例如，上面的例子可以使用一个单独的 `AtomicLong` 作为状态来重写，在每一轮对其进行修改：
 
-.Mutable state variant
+.可变状态形式
 ====
 [source,java]
 ----
@@ -266,7 +266,7 @@ public String alphabet(int letterNumber) {
 
 然后，我们可以使用 `handle` 来删除任何空值：
 
-.Using `handle` for a "map and eliminate nulls" scenario
+.`handle` 用于 "映射和消除null值" 的场景
 ====
 [source,java]
 ----

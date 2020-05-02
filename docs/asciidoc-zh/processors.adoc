@@ -9,7 +9,7 @@ Processor有几种，每一种都有一些特殊的语义，但是在你开始�
 如果你认为 `Processor` 比较适合你的情况，请问你自己是否尝试过这两种选择：
 
 . 操作符或者组合操作符是否满足要求？（看<<which-operator>>）
-. 能否用 <<producing,"`generator`">> 操作符代替？（通常，这些操作符用于桥接非响应式的API，提供了一个概念上类似于 `Processor` 的“`sink`”，也就是说它允许你用数据手动填充或终止序列）。
+. 能否用 <<producing,"`generator`">> 操作符代替？（通常，这些操作符用于桥接非响应式的API，提供了一个概念上类似于 `Processor` 的 "`sink`"，也就是说它允许你用数据手动填充或终止序列）。
 
 如果在考察了上述的替代方案后，你仍然认为你需要一个 `Processor`，请阅读 <<processor-overview>> 章节了解不同的实现。
 
@@ -41,7 +41,7 @@ WARNING: 尽管 `FluxSink` 适用于 `Processor` 的多线程 *手动* 输入，
 从 `next` 溢出有两种可能的方式，这具体取决于 `Processor` 及其配置：
 
 * 无界处理器通过丢弃或缓冲来处理溢出本身。
-* 有界处理器在 `IGNORE` 策略上阻塞或 “`旋转`”，或为 `sink` 指定的 `overflowStrategy` 行为。
+* 有界处理器在 `IGNORE` 策略上阻塞或 "`旋转`"，或为 `sink` 指定的 `overflowStrategy` 行为。
 
 [[processor-overview]]
 = 可用处理器概述

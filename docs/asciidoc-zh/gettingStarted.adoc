@@ -169,7 +169,7 @@ dependencies {
 
 里程碑和开发者预览的版本是通过Spring里程碑仓库而不是中央仓库进行发布。请使用如下片段，要将其添加到你的构建配置文件中：
 
-.Milestones in Maven
+.Java中的里程碑
 ====
 [source,xml]
 ----
@@ -185,7 +185,7 @@ dependencies {
 
 对于Gradle，请使用下面的片段：
 
-.Milestones in Gradle
+.Gradle中的里程碑
 ====
 [source,groovy]
 ----
@@ -198,7 +198,7 @@ repositories {
 
 同样的，快照版本也是在一个单独的专用仓库中可用，如下面的例子所示：
 
-.BUILD-SNAPSHOTs in Maven
+.Maven中的快照版本
 ====
 [source,xml]
 ----
@@ -212,7 +212,7 @@ repositories {
 ----
 ====
 
-.BUILD-SNAPSHOTs in Gradle
+.Gradle中的快照版本
 ====
 [source,groovy]
 ----

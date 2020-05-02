@@ -43,8 +43,8 @@ Reactor操作符就是修饰符。它们返回不同的实例来包装源序列�
 
 比较以下两个例子：
 
-====
-.without chaining (incorrect)
+
+.没有链接 (不正确)
 ====
 [source,java]
 ----
@@ -55,8 +55,8 @@ flux.subscribe(next -> System.out.println("Received: " + next));
 <1> 错误就出在这里。结果没有附加到 `flux` 变量。
 ====
 
-====
-.without chaining (correct)
+
+.没有链接 (正确)
 ====
 [source,java]
 ----
@@ -68,8 +68,8 @@ flux.subscribe(next -> System.out.println("Received: " + next));
 
 下面的例子就更好了（因为比较简单）：
 
-====
-.with chaining (best)
+
+.使用链接 (最佳)
 ====
 [source,java]
 ----
@@ -124,7 +124,7 @@ myMethod.process("a") // this method returns Mono<Void>
 
 你可以使用 `.defaultIfEmpty(T)` 和 `.switchIfEmpty(Publisher<T>)` 将空的 `T` 序列分别替换为默认值或回退的 `Publisher<T>`，这有助于避免某些情况。注意，这并不适用于 `Flux<Void>`/`Mono<Void>` 源，因为你只能切换到另一个 `Publisher<Void>`，它仍然保证是空的。下面的例子使用了 `defaultIfEmpty`：
 
-.use `defaultIfEmpty` before `zipWhen`
+.在 `zipWhen` 之前使用 `defaultIfEmpty`
 ====
 [source,java]
 ----
@@ -192,7 +192,7 @@ java.lang.IllegalArgumentException at 18:02:29.964
 [[faq.thread-affinity-publishon]]
 == 使用 `publishOn()` 时如何确保线程关联性？
 
-如 <<schedulers,Schedulers>> 中所描述的，`publishOn()` 可以用来切换执行上下文。`publishOn()` 操作符会影响到线程上下文，在它下面的链中的其它操作符都会在这个上下文中运行，直到出现一个新的 `publishOn`。因此，`publishOn` 的位置很重要。
+如 <<schedulers,调度器>> 中所描述的，`publishOn()` 可以用来切换执行上下文。`publishOn()` 操作符会影响到线程上下文，在它下面的链中的其它操作符都会在这个上下文中运行，直到出现一个新的 `publishOn`。因此，`publishOn` 的位置很重要。
 
 请看下面的例子：
 

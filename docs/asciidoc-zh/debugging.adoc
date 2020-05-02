@@ -13,7 +13,7 @@
 
 考虑一下下面的堆栈信息：
 
-.A typical Reactor stack trace
+.典型的Reactor堆栈追踪
 ====
 [source,java]
 ----
@@ -66,7 +66,7 @@ toDebug.subscribe(System.out::println, Throwable::printStackTrace);
 ====
 [source,java]
 ----
-public Mono<String> toDebug; //please overlook the public class attribute
+public Mono<String> toDebug; //请忽略公共类属性
 ----
 ====
 
@@ -74,7 +74,7 @@ public Mono<String> toDebug; //please overlook the public class attribute
 
 NOTE: 这有点类似于Reactor的运行时错误，而不是编译错误。
 
-我们想更容易发现的是操作符添加到链的位置，即 `Flux` 声明的地方。我们通常将其称为 `Flux` 的“`装配`”。
+我们想更容易发现的是操作符添加到链的位置，即 `Flux` 声明的地方。我们通常将其称为 `Flux` 的 "`装配`"。
 
 [[debug-activate]]
 == 激活调试模式 - 又名回溯
@@ -218,9 +218,10 @@ TIP: 当回溯作为简短的异常被附加到原始错误中，这可能在某
 这里还有 `checkpoint(String)` 的另一种形式，能让你添加唯一的 `String` 标识符到组合的回溯。这样，就省略了堆栈追踪，并依靠描述来识别装配的位置。`checkpoint(String)` 较于普通的 `checkpoint` 代价要低。
 
 //片段在FluxOnAssemblyTest中
-`checkpoint(String)` 在其输出中（这搜索时会非常方便）包含了 “`light`” ，如下面例子所示：
+`checkpoint(String)` 在其输出中（这搜索时会非常方便）包含了 "`light`" ，如下面例子所示：
 
 ====
+[source,java]
 ----
 ...
 	Suppressed: reactor.core.publisher.FluxOnAssembly$OnAssemblyException:
@@ -231,6 +232,7 @@ Assembly site of producer [reactor.core.publisher.ParallelSource] is identified 
 最后但并非最不重要的，如果你想要添加更通用的描述到检测点，但仍然依靠堆栈跟踪机制来识别装配的位置，你可以通过使用 `checkpoint("description", true)` 来强制执行该行为。我们现在又回到了回溯的初始信息，并添加了 `description`，如下例所示：
 
 ====
+[source,java]
 ----
 Assembly trace from producer [reactor.core.publisher.ParallelSource], described as [descriptionCorrelation1234] : <1>
 	reactor.core.publisher.ParallelFlux.checkpoint(ParallelFlux.java:215)
@@ -253,7 +255,7 @@ Reactor工程自带了一个独立的Java代理，可以增强你的代码并添
 
 下面的例子显示了如何在Maven中添加 `reactor-tools` 依赖项：
 
-.reactor-tools in Maven, in `<dependencies>`
+.Maven中的reactor-tools, 在 `<dependencies>`
 ====
 [source,xml]
 ----
@@ -268,7 +270,7 @@ Reactor工程自带了一个独立的Java代理，可以增强你的代码并添
 
 下面的例子显示了如何在Gradle中添加 `reactor-tools` 依赖型：
 
-.reactor-tools in Gradle, amend the `dependencies` block
+.Gradle中的reactor-tools, 更改 `dependencies` 块
 ====
 [source,groovy]
 ----
@@ -317,7 +319,7 @@ WARNING: 请注意，由于需要迭代所有加载的类并应用转换，重�
 
 `log()` 操作符可以做到这一点。链接在序列中，能窥视它上游的每个 `Flux` 或 `Mono` 事件（包括 `onNext`，`onError` 和 `onComplete`以及订阅，取消和请求）。
 
-.A note on logging implementation
+.关于执行日志的说明
 ****
 `log` 操作符使用 `Loggers` 工具类，它通过 `SLF4J` 提取常用的日志框架，如Log4J和Logback，如果SLF4J不可用时，则默认记录到控制台。
 
@@ -343,6 +345,7 @@ flux.subscribe();
 这将打印出以下内容（通过日志记录的控制台附加器）：
 
 ====
+[source,java]
 ----
 10:45:20.200 [main] INFO  reactor.Flux.Range.1 - | onSubscribe([Synchronous Fuseable] FluxRange.RangeSubscription) <1>
 10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | request(unbounded) <2>

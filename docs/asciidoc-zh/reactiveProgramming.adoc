@@ -31,8 +31,8 @@ onNext x 0..N [onError | onComplete]
 
 通常有两种方式来提升应用的性能：
 
-* 使用更多的线程和硬件资源达到*并行化*
-* 在当前使用的资源上*寻求更高效的处理*
+* 使用更多的线程和硬件资源达到 *并行化*
+* 在当前使用的资源上 *寻求更高效的处理*
 
 通常，Java开发者使用同步方式编程，这种做法在遇到性能瓶颈之前是可行的。当然此时可能会引入更多的线程来运行相同的同步代码。但是像这种资源利用率的扩展，很快会引入竞争和并发的问题。
 
@@ -55,7 +55,7 @@ onNext x 0..N [onError | onComplete]
 
 举个例子：在界面上展示一个用户的最优先的五个喜好，如果都没有，则在界面上进行建议。通过调用三个服务（第一个提供喜好ID，第二个获取喜好详情，第三个提供详情建议），如下所示：
 
-.Example of Callback Hell
+.地狱回调示例
 ====
 [source,java]
 ----
@@ -110,7 +110,7 @@ userService.getFavorites(userId, new Callback<List<String>>() { //<1>
 
 存在大量包含重复且难以追踪的代码。在Reactor实现相同的功能：
 
-.Example of Reactor code equivalent to callback code
+.与回调代码等价的Reactor代码示例
 ====
 [source,java]
 ----
@@ -131,7 +131,7 @@ userService.getFavorites(userId) // <1>
 
 如果想要确保在800ms内检索到喜好ID，当耗时较长时，从缓存中获取？在基于回调的代码中，这是一个复杂的任务。在Reactor中，在链中添加一个 `timeout` 操作符就变得非常简单，如下所示：
 
-.Example of Reactor code with timeout and fallback
+.超时和回退的Reactor代码示例
 ====
 [source,java]
 ----
@@ -157,7 +157,7 @@ userService.getFavorites(userId)
 
 考虑另外一个示例：获取到一个ID列表，我们需要获取其名称或统计信息并将其组合，且所有的操作都是异步的。下面的例子使用 `CompletableFuture` 类型列表执行此操作：
 
-.Example of `CompletableFuture` combination 
+.`CompletableFuture` 组合示例
 ====
 [source,java]
 ----
@@ -202,7 +202,7 @@ assertThat(results).contains(
 
 由于Reactor提供了更多开箱即用的组合运算符，这个过程可以被简化如下：
 
-.Example of Reactor code equivalent to future code
+.与future代码等价的Reactor代码示例
 ====
 [source,java]
 ----
@@ -238,7 +238,7 @@ assertThat(results).containsExactly( // <8>
 <8> 断言结果。
 ====
 
-使用回调和 `Future`对象的缺点是相似的，且是 `Publisher-Subscriber` 的响应式编程所要解决的问题。
+使用回调和 `Future` 对象的缺点是相似的，且是 `Publisher-Subscriber` 的响应式编程所要解决的问题。
 
 == 从命令式到响应式编程
 
@@ -247,14 +247,14 @@ assertThat(results).containsExactly( // <8>
 * *组合性* 和 *易读性*
 * 数据作为 *流* 操作，且有着丰富的 *操作符*
 * 在 *订阅* 之前什么都不会发生
-* *背压* 或者 _消费者向生产者发送信号表示发布速率太快_
+* *背压* 或 _消费者向生产者发送信号表示发布速率太快_
 * 与 _并发无关_ 的高阶抽象
 
 === 组合性和易读性
 
-"`可组合性`"是指能够编排多个异步任务，我们使用先前任务的结果将输入提供给后续任务。另外，我们可以以fork-join的形式运行多个任务。此外，我们能复用异步任务作为离散组件到更高层次的系统中。
+"可组合性"是指能够编排多个异步任务，我们使用先前任务的结果将输入提供给后续任务。另外，我们可以以fork-join的形式运行多个任务。此外，我们能复用异步任务作为离散组件到更高层次的系统中。
 
-编排任务的能力是与代码的可读性和可维护性紧密耦合。随着异步处理的层数和复杂性的增加，编写和阅读代码变得越来越困难。正如我们看到的一样，整个回调模型是非常简单的，但是其主要的缺点之一是，对于复杂的处理，你需要从一个回调中执行一个回调，其本身嵌套在另一个回调中，依此类推。这种混乱被称为"`地狱回调`"。正如你所料到的（或从经验得知），如此的代码是相当难以回溯和推理的。
+编排任务的能力是与代码的可读性和可维护性紧密耦合。随着异步处理的层数和复杂性的增加，编写和阅读代码变得越来越困难。正如我们看到的一样，整个回调模型是非常简单的，但是其主要的缺点之一是，对于复杂的处理，你需要从一个回调中执行一个回调，其本身嵌套在另一个回调中，依此类推。这种混乱被称为"地狱回调"。正如你所料到的（或从经验得知），如此的代码是相当难以回溯和推理的。
 
 Reactor提供了丰富的组合选项，其中在代码中反映了抽象过程，并且所有内容通常保持在同一级别（减少嵌套）。
 
@@ -298,6 +298,6 @@ Rx系列的响应库区分了两大类响应式序列：*热* 和 *冷*，这种
 - 一个 *冷* 的序列会对每个 `Subscriber` 都重新开始，包括数据源。例如，如果源包装了一个HTTP调用，则会为每个订阅发起一个新的HTTP请求。
 - 一个 *热* 的序列对每个 `Subscriber` 并非是从头开始。更确切地说，晚到的订阅者会在订阅后接收到发送的信号。但是注意，有些热的响应式流可以缓存或者重置全部或部分下发历史。从一般的角度来看，一个热的序列即使没有订阅者处于监听（对于"`订阅之前什么都不会发生`"规则是个例外），也能下发。
 
-关于Reactor上下文中热与冷的更多信息，请看 <<reactor.hotCold,this reactor-specific section>>。
+关于Reactor上下文中热与冷的更多信息，请看 <<reactor.hotCold,reactor专门章节>>。
 
 //TODO talk about being concurrency-agnostic? Elements of functional style?

@@ -54,7 +54,7 @@ operators is to _chain_ the calls.
 
 Compare the following two examples:
 
-====
+
 .without chaining (incorrect)
 ====
 [source,java]
@@ -66,7 +66,7 @@ flux.subscribe(next -> System.out.println("Received: " + next));
 <1> The mistake is here. The result is not attached to the `flux` variable.
 ====
 
-====
+
 .without chaining (correct)
 ====
 [source,java]
@@ -79,7 +79,7 @@ flux.subscribe(next -> System.out.println("Received: " + next));
 
 The following sample is even better (because it is simpler):
 
-====
+
 .with chaining (best)
 ====
 [source,java]

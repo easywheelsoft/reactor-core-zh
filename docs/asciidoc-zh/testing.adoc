@@ -7,7 +7,7 @@ Reactor自带了一些专门用于测试的元素，汇总到自己的artifact�
 
 要在测试中使用它，你必须将其添加作为测试依赖。下面的例子显示了如何在Maven中怎么添加 `reactor-test` 作为依赖：
 
-.reactor-test in Maven, in `<dependencies>`
+.Maven中的reactor-test, 在 `<dependencies>`
 ====
 [source,xml]
 ----
@@ -23,7 +23,7 @@ Reactor自带了一些专门用于测试的元素，汇总到自己的artifact�
 
 下面的例子显示了如何在Gradle中添加 `reactor-test` 作为依赖：
 
-.reactor-test in Gradle, amend the `dependencies` block
+.Gradle中的reactor-test, 修改 `dependencies` 块
 ====
 [source,groovy]
 ----
@@ -64,7 +64,7 @@ public <T> Flux<T> appendBoomError(Flux<T> source) {
 
 为了测试它，你要验证以下场景：
 
-> 我希望这个 `Flux` 首先产生 `thing1`，然后产生 `thing2`，接着 *产生带有消息 `boom` 错误*。订阅并 *验证* 这些期望。
+> 我希望这个 `Flux` 首先产生 `thing1`，然后产生 `thing2`，接着 *产生带有错误消息* 的 `boom`。订阅并 *验证* 这些期望。
 
 在 `StepVerifier` API中，这可以转化为以下测试：
 
@@ -97,7 +97,7 @@ public void testAppendBoomError() {
 * 消费下一个信号。当你想要略过序列的一部分，或者想对信号的内容应用一个自定义的 `assertion`（例如，为了检测是否存在 `onNext` 事件并断言产生的列表元素个数大小为5），例如，你可以使用 `consumeNextWith(Consumer<T>)`。
 * 执行诸如暂停或运行任意代码等其他操作。例如，如果你想要操纵一个特定的测试状态或上下文。为此，你可以使用 `thenAwait(Duration)` 和 `then(Runnable)`。
 
-对于终止事件，相应的期望方法（`expectComplete()` 和 `expectError()`及其其它的形式）会切换到一个你无法再表达期望的API中。在这最后一步，你能做的就是再 `StepVerifier` 上执行一些额外的配置，然后触发验证，通常是用 `verify()` 或其其它形式之一。
+对于终止事件，相应的期望方法（`expectComplete()` 和 `expectError()` 及其其它的形式）会切换到一个你无法再表达期望的API中。在这最后一步，你能做的就是再 `StepVerifier` 上执行一些额外的配置，然后触发验证，通常是用 `verify()` 或其其它形式之一。
 
 此时， `StepVerifier` 订阅了被测试的 `Flux` 或 `Mono`，并触发序列的开始，将每一个新信号与场景中的下一个步骤进行比较。只要这些符合，测试就视为成功。一旦有一个差异，将会抛出 `AssertionError` 。
 
@@ -111,7 +111,7 @@ TIP: 默认情况下，`verify()` 方法和派生的快捷方法（`verifyThenAs
 
 `StepVerifier` 提供了两个选项，以更好地确定是哪个期望步骤导致测试失败：
 
-* `as(String)`：用在大多数 `expect* ` 方法之后，用于给出先前期望的描述。如果期望失败，其错误信息会包含该描述。终止期望和 `verify` 不能使用该方式进行描述。
+* `as(String)`：用在大多数 `expect*` 方法之后，用于给出先前期望的描述。如果期望失败，其错误信息会包含该描述。终止期望和 `verify` 不能使用该方式进行描述。
 * `StepVerifierOptions.create().scenarioName(String)`：通过使用 `StepVerifierOptions` 来创建你的 `StepVerifier`，你可以使用 `scenarioName` 方法为整个场景命名，这个名字也可用于在断言错误信息中。
 
 注意，在两种情况下，只能保证在使用 `StepVerifier` 它们自己的方法产生的 `AssertionError` 信息中使用描述和名称（例如，手动抛出一个异常或通过 `assertNext` 中的断言库，则不会将描述或名称添加到错误消息中）。
@@ -181,11 +181,11 @@ WARNING: 虚拟时间不是银弹。所有的 `Schedulers` 都是被替换为相
 
 在 `Context` 的传播过程中，`StepVerifier` 附带一些期望：
 
-* `expectAccessibleContext`：返回一个 `ContextExpectations` 对象，你可以使用这个对象来设置在传播 `上下文` 的期望。确保调用 `then()` 能够返回到序列期望集。
+* `expectAccessibleContext`：返回一个 `ContextExpectations` 对象，你可以使用这个对象来设置在传播 `Context` 的期望。确保调用 `then()` 能够返回到序列期望集。
 
-* `expectNoAccessibleContext`：设置了一个期望，使其在被测试的操作符链上不能传播任何 `上下文`。这最有可能发生在当测试的不是响应式的 `Publisher` 或没有任何可以传播 `上下文`（例如，生成器源）的操作符
+* `expectNoAccessibleContext`：设置了一个期望，使其在被测试的操作符链上不能传播任何 `Context`。这最有可能发生在当测试的不是响应式的 `Publisher` 或没有任何可以传播 `Context`（例如，生成器源）的操作符
 
-此外，你可以通过使用 `StepVerifierOptions` 来创建验证器，将特定于测试的初始 `上下文` 关联到 `StepVerifier`。
+此外，你可以通过使用 `StepVerifierOptions` 来创建验证器，将特定于测试的初始 `Context` 关联到 `StepVerifier`。
 
 下面的片段展示了这些特性：
 
@@ -200,14 +200,14 @@ StepVerifier.create(Mono.just(1).map(i -> i + 10),
 		            .expectNext(11)
 		            .verifyComplete(); // <5>
 ----
-<1> 通过使用 `StepVerifierOptions` 创建 `StepVerifier` 并传递一个初始化的 `上下文`。
-<2> 开始设置关于 `上下文` 传播的期望。仅此一项就可以确保 `上下文` 的传播。
-<3> 特定 `上下文` 期望的一个例子。它必须包含键 "thing1" 的值 "thing2"。
+<1> 通过使用 `StepVerifierOptions` 创建 `StepVerifier` 并传递一个初始化的 `Context`。
+<2> 开始设置关于 `Context` 传播的期望。仅此一项就可以确保 `Context` 的传播。
+<3> 特定 `Context` 期望的一个例子。它必须包含键 "thing1" 的值 "thing2"。
 <4> 我们使用 `then()` 切换回对数据设置正常对期望。
 <5> 让我们不要忘记对整个期望集合进行 `verify()`。
 ====
 
-== 用`TestPublisher`手动发射
+== 用 `TestPublisher` 手动发射
 
 对于更高级的测试用例来说，完全掌握数据源，能够触发精心选择的信号，使之与你要测试的特定情况紧密匹配会更有用。
 

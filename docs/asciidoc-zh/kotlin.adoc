@@ -33,7 +33,8 @@ io.projectreactor.kotlin:reactor-kotlin-extensions
 
 NOTE: 记住必须要导入Kotlin扩展后才能使用。例如，这意味着只有在导入 `import reactor.kotlin.core.publisher.toFlux` 的情况下，`Throwable.toFlux` Kotlin扩展才能使用。也就是说，类似于静态导入，在大多数情况下，IDE应该会自动建议导入。
 
-例如，https://kotlinlang.org/docs/reference/inline-functions.html#reified-type-parameters[Kotlin实化类型参数]为JVM https://docs.oracle.com/javase/tutorial/java/generics/erasure.html[泛型类型擦除]提供了一个解决方案，且Reactor提供了一些扩展来利用这个特性。
+例如，
+https://kotlinlang.org/docs/reference/inline-functions.html#reified-type-parameters[Kotlin实化类型参数]为JVM https://docs.oracle.com/javase/tutorial/java/generics/erasure.html[泛型类型擦除]提供了一个解决方案，且Reactor提供了一些扩展来利用这个特性。
 
 下表比较了Java中的Reactor和Kotlin中的Reactor扩展。
 
@@ -48,7 +49,7 @@ NOTE: 记住必须要导入Kotlin扩展后才能使用。例如，这意味着�
 |`Flux.error(new RuntimeException())`
 |`RuntimeException().toFlux()`
 |`flux.ofType(Foo.class)`
-|`flux.ofType<Foo>()` or `flux.ofType(Foo::class)`
+|`flux.ofType<Foo>()` 或 `flux.ofType(Foo::class)`
 |`StepVerifier.create(flux).verifyComplete()`
 |`flux.test().verifyComplete()`
 |===
@@ -58,9 +59,10 @@ https://projectreactor.io/docs/kotlin/release/kdoc-api/[Reactor KDoc API]列出�
 [[kotlin-null-safety]]
 == 空安全
 
-Kotlin的关键特性之一是 https://kotlinlang.org/docs/reference/null-safety.html[空安全]，它在编译时干净利落地处理了 `null` 值，而不是在运行时碰到著名的 `NullPointerException` 异常。通过可空性的声明和“`有值或者无值`”的语义表达可以使应用更加安全，而不需要花费代价进行诸如 `Optional` 这样的封装。（Kotlin允许使用具有空值的函数构造。请看 https://www.baeldung.com/kotlin-null-safety[关于Kotlin空安全的全面指南]。）
+Kotlin的关键特性之一是 https://kotlinlang.org/docs/reference/null-safety.html[空安全]，它在编译时干净利落地处理了 `null` 值，而不是在运行时碰到著名的 `NullPointerException` 异常。通过可空性的声明和 "`有值或者无值`" 的语义表达可以使应用更加安全，而不需要花费代价进行诸如 `Optional` 这样的封装。（Kotlin允许使用具有空值的函数构造。请看 https://www.baeldung.com/kotlin-null-safety[关于Kotlin空安全的全面指南]。）
 
-尽管Java不允许在其类型系统中表示null安全，但通过在 `reactor.util.annotation` 包中声明的友好的注释，Reactor为整个Reactor API<<null-safety,提供空安全>>。默认情况下，Kotlin中使用的Java API中的类型会被识别为 https://kotlinlang.org/docs/reference/java-interop.html#null-safety-and-platform-types[平台类型]，对于这些类型，空检查可以放宽。https://github.com/Kotlin/KEEP/blob/jsr-305/proposals/jsr-305-custom-nullability-qualifiers.md[Kotlin支持JSR 305注释] 和Reactor可空性注释为Kotlin开发者提供了整个Reactor API的空安全，在编译时处理 `null` 相关问题的优势。
+尽管Java不允许在其类型系统中表示null安全，但通过在 `reactor.util.annotation` 包中声明的友好的注释，Reactor为整个Reactor API<<null-safety,提供空安全>>。默认情况下，Kotlin中使用的Java API中的类型会被识别为 https://kotlinlang.org/docs/reference/java-interop.html#null-safety-and-platform-types[平台类型]，对于这些类型，空检查可以放宽。
+https://github.com/Kotlin/KEEP/blob/jsr-305/proposals/jsr-305-custom-nullability-qualifiers.md[Kotlin支持JSR 305注释] 和Reactor可空性注释为Kotlin开发者提供了整个Reactor API的空安全，在编译时处理 `null` 相关问题的优势。
 
 你可以通过添加 `-Xjsr305` 编译器标签来配置JSR 305的检查，并使用以下选项：`-Xjsr305={strict|warn|ignore}`。
 

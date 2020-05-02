@@ -14,7 +14,7 @@ Reactor引入了可组合的响应式类型，这些类型既实现了 `Publishe
 
 下图显示了 `Flux` 如何转换元素：
 
-image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/flux.png[Flux]
+image::images/flux.png[Flux]
 
 `Flux<T>` 是一个标准的 `Publisher<T>`，表示为发出0到N个元素的异步序列，可由完成或者错误信号进行选择性终止。在响应式流规范中，这三种类型信号转换为调用下游订阅者的 `onNext` ，`onComplete`，和 `onError` 方法。
 
@@ -25,11 +25,11 @@ image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src
 
 下图显示了 `Mono` 如何转换元素：
 
-image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/mono.png[Mono]
+image::images/mono.png[Mono]
 
 `Mono<T>` 是一个特定的 `Publisher<T>`，最多可以发出一个元素，可以被 `onComplete` 或 `onError` 信号选择性终止。
 
-它仅提供可用于 `Flux`的子集操作符，且一些操作符（特别是那些将 `Mono` 和另一个 `Publisher` 结合起来的操作符）能够切换到 `Flux`。例如，`Mono#concatWith(Publisher)` 返回一个 `Flux`，而 `Mono#then(Mono)` 返回另一个 `Mono`。
+它仅提供可用于 `Flux` 的子集操作符，且一些操作符（特别是那些将 `Mono` 和另一个 `Publisher` 结合起来的操作符）能够切换到 `Flux`。例如，`Mono#concatWith(Publisher)` 返回一个 `Flux`，而 `Mono#then(Mono)` 返回另一个 `Mono`。
 
 注意，你可以使用 `Mono` 来表示具有完成（类似于 `Runnable`）概念的无值异步处理。使用 `Mono<Void>` 来进行创建。
 
@@ -67,7 +67,7 @@ Flux<Integer> numbersFromFiveToSeven = Flux.range(5, 3); <2>
 在订阅时，`Flux` 和 `Mono` 使用Java8的lambda语法。你可以选择各种各样的 `.subscribe()` 形式，将lambda使用于不同的回调组合，如下面的方法签名所示：
 
 [[subscribeMethods]]
-.Lambda-based subscribe variants for `Flux`
+.基于Lambda的 `Flux` 的订阅形式
 ====
 [source,java]
 ----
@@ -108,7 +108,7 @@ include::producing.adoc[leveloffset=2]
 
 Reactor，就像RxJava一样，可以被认为是 *可并发的*。也就是说，并没有强制的并发模型。相反，它让开发人员掌握主动权。然而这并不妨碍框架帮你解决并发问题。
 
-获得 `Flux` 或 `Mono` 并不一定意味着它要在特定的线程运行。相反，大多数操作符继续在上一个操作符执行的 `线程` 中工作。除非指定，否则最上面的操作符（源）本身运行在调用了 `subscribe()` 的 `线程` 上。下面的示例在一个新的线程上运行 `Mono`：
+获得 `Flux` 或 `Mono` 并不一定意味着它要在特定的线程运行。相反，大多数操作符继续在上一个操作符执行的 `Thread` 中工作。除非指定，否则最上面的操作符（源）本身运行在调用了 `subscribe()` 的 `Thread` 上。下面的示例在一个新的线程上运行 `Mono`：
 
 ====
 [source,java]
@@ -141,7 +141,8 @@ hello thread Thread-0
 ----
 ====
 
-在Reactor中，执行模型和执行的位置由使用的 `Scheduler` 决定。https://projectreactor.io/docs/core/release/api/reactor/core/scheduler/Scheduler.html[`Scheduler`] 具有类似于 `ExecutorService` 的调度职责，但有一个专门的抽象使其可以做更多的事情，尤其是作为一个时钟和更广的范围实现（虚拟时间测试，波动或立即调度等）。
+在Reactor中，执行模型和执行的位置由使用的 `Scheduler` 决定。
+https://projectreactor.io/docs/core/release/api/reactor/core/scheduler/Scheduler.html[`Scheduler`]具有类似于 `ExecutorService` 的调度职责，但有一个专门的抽象使其可以做更多的事情，尤其是作为一个时钟和更广的范围实现（虚拟时间测试，波动或立即调度等）。
 
 The https://projectreactor.io/docs/core/release/api/reactor/core/scheduler/Schedulers.html[`Schedulers`]
 类有可以访问执行上下文的静态方法：
@@ -172,8 +173,7 @@ Flux.interval(Duration.ofMillis(300), Schedulers.newSingle("test"))
 ----
 ====
 
-Reactor提供了两种方式来切换响应式链中的执行上下文（或 `Scheduler` ）: `publishOn` 和 `subscribeOn`。两者都取一个 `Scheduler`，并让你将执行上下文切换到该调度器。但是 `publishOn` 在链中的位置是很重要的，然而 `subscribeOn` 的位置却是无关紧要的。要理解这个区别，你首先要记住<<reactive.subscribe,nothing happens until you
-subscribe>>。
+Reactor提供了两种方式来切换响应式链中的执行上下文（或 `Scheduler` ）: `publishOn` 和 `subscribeOn`。两者都取一个 `Scheduler`，并让你将执行上下文切换到该调度器。但是 `publishOn` 在链中的位置是很重要的，然而 `subscribeOn` 的位置却是无关紧要的。要理解这个区别，你首先要记住<<reactive.subscribe,订阅之前什么都不会发生>>。
 
 在Reactor中，当你用链接操作符时，你可以根据需要在内部封装尽可能多的 `Flux` 和 `Mono` 实现。一旦你订阅了，一个 `Subscriber` 对象的链就会创建出来，向后（沿着链向上）到第一个生产者。这实际上是对你隐藏掉的。你能看到的只是外层到 `Flux` (或 `Mono`)和 `Subscription`，但是这些中间的操作符的订阅才是真正的工作。
 
@@ -214,7 +214,7 @@ new Thread(() -> flux.subscribe(System.out::println));  //<5>
 当向下的链被构造时，`subscribeOn` 应用在订阅处理上。因此，无论你将 `subscribeOn` 放在链中的哪个位置，*始终会影响到源排放的上下文*。然而，这不会影响到后续调用 `publishOn` 的行为 -- 它们仍将为其之后的链执行上下文切换。
 
 * 改变 *整个链* 所订阅的 `Thread` 
-* 从 `Scheduler`选择一个线程
+* 从 `Scheduler` 选择一个线程
 
 NOTE: 只有链中的最早的 `subscribeOn` 调用才会被实际考虑在内。
 
@@ -243,7 +243,7 @@ new Thread(() -> flux.subscribe(System.out::println));  //<5>
 [[error.handling]]
 == 错误处理
 
-TIP: 快速查看关于错误处理的操作符，参看<<which.errors,the relevant operator decision tree>>。
+TIP: 快速查看关于错误处理的操作符，参看<<which.errors,相关操作符决策树>>。
 
 在响应式流中，错误是终止事件。一旦错误发生，就会停止序列，并沿着操作符链向下传播到最后一步，即你定义的 `Subscriber` 及其 `onError` 方法。
 
@@ -257,12 +257,12 @@ Reactor还提供了处理链中间处理错误的替代方法，即错误操作�
 [source,java]
 ----
 Flux.just(1, 2, 0)
-    .map(i -> "100 / " + i + " = " + (100 / i)) //this triggers an error with 0
-    .onErrorReturn("Divided by zero :("); // error handling example
+    .map(i -> "100 / " + i + " = " + (100 / i)) //这将触发一个0的错误
+    .onErrorReturn("Divided by zero :("); // 错误处理例子
 ----
 ====
 
-IMPORTANT: 在学习错误处理操作符之前，你必须记住 _响应式序列中的任何错误都是一个终止事件_。即使使用了错误处理操作符，它也不会让原来序列继续进行。相反，它将`onError` 信号转换为一个新的序列（降级序列）的开始。换句话说，它会替换了 _上游_ 终止序列。
+IMPORTANT: 在学习错误处理操作符之前，你必须记住 _响应式序列中的任何错误都是一个终止事件_。即使使用了错误处理操作符，它也不会让原来序列继续进行。相反，它将 `onError` 信号转换为一个新的序列（降级序列）的开始。换句话说，它会替换了 _上游_ 终止序列。
 
 现在我们可以逐一考虑每一种错误处理的方式。适当的时候，我们将与命令式编程的 `try` 模式并行使用。
 
@@ -276,7 +276,7 @@ IMPORTANT: 在学习错误处理操作符之前，你必须记住 _响应式序�
 * 捕获异常并动态地计算一个降级的值。
 * 捕获异常，封装成一个 `BusinessException`，然后重新对外抛出。
 * 捕获异常，打印错误的具体信息，并重新对外抛出异常。
-* 使用 `finally` 块或Java 7以上支持的 “`try-with-resource`” 语法清理资源。
+* 使用 `finally` 块或Java 7以上支持的 "`try-with-resource`" 语法清理资源。
 
 Reactor中，所有的这些方法都以错误处理操作符的形式且具有相同的效果。
 在深入这些操作符之前，我们首先要在响应式链和try-catch块之间建立对应的关系。
@@ -322,8 +322,7 @@ try {
 既然我们已经建立了对应的关系，我们就可以看不同的错误处理情况及其等效的操作符。
 
 ==== 静态降级的值
-
- `onErrorReturn` 等效于“`捕获并返回一个静态默认值`”。
+`onErrorReturn` 等效于“`捕获并返回一个静态默认值`”。
 下面的例子显示了如何使用它：
 
 ====
@@ -363,7 +362,7 @@ Flux.just(10)
 
 ==== 降级方法
 
-如果你想要有多个默认值，并且有其他的（更安全的）方式处理数据，你可以使用 `onErrorResume`。这相当于 “`捕获异常并执行一个降级方法`”。
+如果你想要有多个默认值，并且有其他的（更安全的）方式处理数据，你可以使用 `onErrorResume`。这相当于 "`捕获异常并执行一个降级方法`"。
 
 例如，如果你名义上的进程正在从外部且不可靠的服务中获取数据，但你也保留了一个相同数据的本地缓存，而这些数据 _也许_ 有点过期但是更可靠，你可以做以下操作：
 
@@ -422,12 +421,12 @@ Flux.just("timeout1", "unknown", "key2")
 <1> 该函数可以动态选择如何继续。
 <2> 如果源超时，访问本地缓存。
 <3> 如果源中该键为未知，则创建新的对象。
-<4> 其它的所有情况下，“`重新抛出异常`”。
+<4> 其它的所有情况下，"`重新抛出异常`"。
 ====
 
 ==== 动态降级的值
 
-即使你没有其它（更安全的）的数据处理的方式，你可能也想从你收到的异常中计算出一个降级的值。这就相当于 “`捕获异常并动态地计算一个降级的值`”。
+即使你没有其它（更安全的）的数据处理的方式，你可能也想从你收到的异常中计算出一个降级的值。这就相当于 "`捕获异常并动态地计算一个降级的值`"。
 
 例如，如果你的返回类型（`MyWrapper`）有一个专门用来保存异常的形式（参考 `Future.complete(T success)` 与 `Future.completeExceptionally(Throwable error)` ），你可以实例化错误保持变量并传递异常。
 
@@ -461,7 +460,7 @@ erroringFlux.onErrorResume(error -> Mono.just( // <1>
 
 ==== 捕获并重新抛出异常
 
-“捕获异常，封装成一个 `BusinessException`，然后重新对外抛出”，在命令式编程里面看起来就像下面这样：
+"捕获异常，封装成一个 `BusinessException`，然后重新对外抛出”，在命令式编程里面看起来就像下面这样：
 
 ====
 [source,java]
@@ -475,7 +474,7 @@ catch (Throwable error) {
 ----
 ====
 
-在 “`降级方法`” 示例中， `flatMap` 中的最后一行给了我们一个提示，为我们实现同样的响应式操作，具体如下：
+在 "`降级方法`" 示例中， `flatMap` 中的最后一行给了我们一个提示，为我们实现同样的响应式操作，具体如下：
 
 ====
 [source,java]
@@ -501,7 +500,7 @@ Flux.just("timeout1")
 
 ==== 侧面记录日志或响应
 
-如果你想让错误继续传播，但仍想在不修改序列的情况下对错误做出响应（例如记录日志），你可以使用 `doOnError` 操作符。这相当于 “`捕获异常，打印错误的具体信息，并重新对外抛出异常`” 的模式，如下面的例子所示：
+如果你想让错误继续传播，但仍想在不修改序列的情况下对错误做出响应（例如记录日志），你可以使用 `doOnError` 操作符。这相当于 "`捕获异常，打印错误的具体信息，并重新对外抛出异常`" 的模式，如下面的例子所示：
 
 ====
 [source,java]
@@ -517,7 +516,7 @@ catch (RuntimeException error) {
 ----
 ====
 
-`doOnError` 操作符以及所有以 `doOn` 为前缀的操作符，有时被称为“`侧面效应`”。它们让你可以在不修改序列事件的情况下窥测到序列内部的事件。
+`doOnError` 操作符以及所有以 `doOn` 为前缀的操作符，有时被称为 "`侧面效应`"。它们让你可以在不修改序列事件的情况下窥测到序列内部的事件。
 
 就像前面的命令式编程例子一样，下面的例子仍然会传播错误，但至少可以确保我们记录到外部服务发生了故障。
 
@@ -544,9 +543,9 @@ Flux.just("unknown")
 
 ==== 使用Resources和Fianlly块
 
-最后一个与命令式编程对应的是清理，通过使用 “`使用 `finally` 块或Java 7以上支持的 “`try-with-resource`” 语法清理资源`”，如下所示：
+最后一个与命令式编程对应的是清理，通过使用 "`使用 `finally` 块`" 或Java 7以上支持的 "`try-with-resource`" 语法清理资源，如下所示：
 
-.Imperative use of finally
+.命令式地使用finally
 ====
 [source,java]
 ----
@@ -561,7 +560,7 @@ finally {
 ----
 ====
 
-.Imperative use of try-with-resource
+.命令式地使用try-with-resource
 ====
 [source,java]
 ----
@@ -577,7 +576,7 @@ try (SomeAutoCloseable disposableInstance = new SomeAutoCloseable()) {
 
 ====
 [source,java]
-.Reactive finally: `doFinally()`
+.响应式的finally: `doFinally()`
 ----
 Stats stats = new Stats();
 LongAdder statsCancel = new LongAdder();
@@ -598,9 +597,9 @@ Flux.just("foo", "bar")
 <4> `take(1)` 在发射一项元素后取消。
 ====
 
-另一方面，`using` 处理了 `Flux` 来自于某资源的情况，且在处理过程中必须对资源进行操作。在下面的例子中，我们用 `Disposable` 替换“`try-with-resource`”中的`AutoCloseable` 接口：
+另一方面，`using` 处理了 `Flux` 来自于某资源的情况，且在处理过程中必须对资源进行操作。在下面的例子中，我们用 `Disposable` 替换 "`try-with-resource`" 中的 `AutoCloseable` 接口：
 
-.The Disposable resource
+.可丢弃的资源
 ====
 [source,java]
 ----
@@ -621,7 +620,7 @@ Disposable disposableInstance = new Disposable() {
 
 现在我们可以做相当于 “`try-with-resource`” 的响应式操作了，看起来像下面这样：
 
-.Reactive try-with-resource: `using()`
+.响应式的try-with-resource: `using()`
 ====
 [source,java]
 ----
@@ -716,7 +715,7 @@ java.lang.RuntimeException: boom
 
 从前面的例子可以看到，`retry(1)` 仅重新订阅了一次原始的 `interval`，从0开始重新计时。第二次，由于异常依然发生，放弃并向下游传播错误。
 
-`retry`（称为 `retryWhen`）有一个更高级的版本，使用伴随的 `Flux` 来告知是否应重试特定的故障。为了便于自定义retry的条件，这个伴随的 `Flux`被操作符创建但是是由用户自己组装的。
+`retry`（称为 `retryWhen`）有一个更高级的版本，使用伴随的 `Flux` 来告知是否应重试特定的故障。为了便于自定义retry的条件，这个伴随的 `Flux` 被操作符创建但是是由用户自己组装的。
 
 伴随的 `Flux` 是一个 `Flux<Throwable>` ，它被传递给一个 `Function`，且作为 `retryWhen` 的唯一的参数。作为用户，你定义该函数并使其返回新的 `Publisher<?>`。重试周期如下：
 
@@ -772,18 +771,18 @@ ERROR: java.lang.IllegalArgumentException: foo
 ----
 ====
 
-TIP: 你可以通过使用<<hooks-internal,hook>>来调整在传递给 `onError` 之前的 `Exception`。
+TIP: 你可以通过使用<<hooks-internal,钩子>>来调整在传递给 `onError` 之前的 `Exception`。
 
 然而，Reactor定义了一组被认为是致命的异常（例如 `OutOfMemoryError`）。参考 `Exceptions.throwIfFatal` 方法。这些错误意味着Reactor不能继续运行，且将错误抛出而不是传播。
 
-NOTE: 在内部，也有某些情况下，由于并发竞争，可能导致 `onError` 或 `onComplete` 条件，未检查的异常依然不能被传播（最明显的是在订阅和请求阶段）。当竞争发生时，不能传播的错误会被“`丢弃`”掉。这些情况在某种程度上也可以通过自定义钩子进行管理。参见<<hooks-dropping>>。
+NOTE: 在内部，也有某些情况下，由于并发竞争，可能导致 `onError` 或 `onComplete` 条件，未检查的异常依然不能被传播（最明显的是在订阅和请求阶段）。当竞争发生时，不能传播的错误会被 "`丢弃`" 掉。这些情况在某种程度上也可以通过自定义钩子进行管理。参见<<hooks-dropping>>。
 
-你可能会问：“`需检查异常的怎么办？`”
+你可能会问："`需检查异常的怎么办？`"
 
 例如，如果你需要调用一些声明了 `throws` 异常的方法，你依然需要在 `try-catch` 块中处理这些异常。但是，你有几个选择：
 
 . 捕获到异常并从中恢复。序列继续正常的进行。
-. 捕获异常，将其封装成一个_不检查_的异常，然后将其抛出（中断序列）。`Exceptions` 工具类可以帮助你解决这个问题（接下来我们会讲到这个问题）。
+. 捕获异常，将其封装成一个 _不检查_ 的异常，然后将其抛出（中断序列）。`Exceptions` 工具类可以帮助你解决这个问题（接下来我们会讲到这个问题）。
 . 如果你需要返回一个 `Flux`（例如，在 `flatMap` 中），那么就用一个产生错误的 `Flux` 来封装异常，如下所示：`return Flux.error(checkedException)`。（这个序列也会终止。）
 
 Reactor有一个 `Exceptions` 工具类，你可以用它来确保只有当异常为被检查异常时才会被封装：

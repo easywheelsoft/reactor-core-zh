@@ -17,7 +17,7 @@
 [[advanced-mutualizing-operator-usage]]
 == 互用操作符用法
 
-从简洁的代码角度来看，代码复用通常是一件好事。Reactor提供了一些可以帮助你重用和互用代码的方式，特别是对于你可能想在代码库中经常应用的操作符或操作符的组合。如果你想将操作符链作为配方，你可以创建一个操作符 “`食谱`” 的配方。
+从简洁的代码角度来看，代码复用通常是一件好事。Reactor提供了一些可以帮助你重用和互用代码的方式，特别是对于你可能想在代码库中经常应用的操作符或操作符的组合。如果你想将操作符链作为配方，你可以创建一个操作符 "`食谱`" 的配方。
 
 === 使用 `transform` 操作符
 
@@ -39,7 +39,7 @@ Flux.fromIterable(Arrays.asList("blue", "green", "orange", "purple"))
 
 下图显示了 `transform` 操作符如何封装流：
 
-image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-transform.png[转换操作符：封装流]
+image::images/gs-transform.png[转换操作符：封装流]
 
 前面的例子产生以下输出：
 
@@ -84,7 +84,7 @@ composedFlux.subscribe(d -> System.out.println("Subscriber 2 to Composed MapAndF
 
 下图显示了 `transformDeferred` 操作符如何处理每个订阅者的转换：
 
-image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-compose.png[组合操作符：每个订阅者转换]
+image::images/gs-compose.png[组合操作符：每个订阅者转换]
 
 上面的例子产生以下输出：
 
@@ -118,7 +118,7 @@ purple
 
 考虑一个HTTP请求：每个新的订阅者触发一次HTTP调用，但是如果没有人对结果感兴趣，就不进行调用。
 
-另一方面，热的生产者不依赖于任何数量的订阅者。它们可能会立即开始发布数据，并在每当有一个新的 `Subscriber` 出现时（在这种情况下，当它订阅_后_，订阅者只能看到发出的新的元素）继续这样做。对于热的生产者来说，在订阅前确实会发生 _一些事情_。
+另一方面，热的生产者不依赖于任何数量的订阅者。它们可能会立即开始发布数据，并在每当有一个新的 `Subscriber` 出现时（在这种情况下，当它订阅 _后_，订阅者只能看到发出的新的元素）继续这样做。对于热的生产者来说，在订阅前确实会发生 _一些事情_。
 
 Reactor中为数不多的热操作符的一个例子就是 `just`：在组装时直接获取值，然后向订阅它的任何人重新发出。再次类比于HTTP的调用，如果获取的数据是一次HTTP调用的结果，那么只有一次网络调用，即初始化 `just` 时。
 
@@ -156,7 +156,7 @@ Subscriber 2: PURPLE
 
 下图显示了重播行为：
 
-image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-cold.png[Replaying behavior]
+image::images/gs-cold.png[Replaying behavior]
 
 两个订阅者都能捕获所有的四种颜色，因为每个订阅者都会导致操作符在 `Flux` 上定义的过程运行。
 
@@ -198,7 +198,7 @@ Subscriber 2 to Hot Source: PURPLE
 
 下图显示了订阅是如何广播的：
 
-image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-hot.png[广播订阅]
+image::images/gs-hot.png[广播订阅]
 
 订阅者1捕获了所有四种颜色。在前面两种颜色产生后创建订阅者2，只捕获了后面两种颜色。这种差异导致了 `ORANGE` 和 `PURPLE` 的输出加倍。Flux上操作符所描述的过程，无论订阅何时被添加，都会运行。
 
@@ -209,7 +209,7 @@ image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src
 
 这就是 `ConnectableFlux` 的作用。`Flux` API 中包含了两个主要的模式，可以返回一个 `ConnectableFlux`：`publish` 和 `replay`。
 
-* `publish` 尝试动态地维护各个订阅者的需求，在背压方面，通过转发这些请求给源。最值得注意的是，如果任何订阅者有一个挂起的请求“0”，`publish` 将暂停向源的请求。
+* `publish` 尝试动态地维护各个订阅者的需求，在背压方面，通过转发这些请求给源。最值得注意的是，如果任何订阅者有一个挂起的请求 `0`，`publish` 将暂停向源的请求。
 * `replay` 缓冲第一次订阅开始的数据，直到达到可配置的限制（在时间和缓冲区大小上）。它将重新发出数据给后续订阅者。
 
 `ConnectableFlux` 提供了额外的方法来管理下游订阅与原始源的订阅。这些额外方法包括：
@@ -217,7 +217,7 @@ image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src
 * 一旦对 `Flux` 达到足够多的订阅，可以手动调用 `connect()`。这样将触发对上游源的订阅。
 * 一旦达到 `n` 个订阅，`autoConnect(n)` 可以自动做相同的事情。
 * `refCount(n)` 不仅自动跟踪到来的订阅，而且还可以检测这些订阅何时被取消。如果跟踪的订阅者不足，则源将 ”`disconnected`“，如果稍后有额外的订阅者出现，则将导致对源产生新的订阅。
-* `refCount(int, Duration)` 增加了一个“`宽限期`”。一旦跟踪的订阅者数量太低，它会在断开源之前等待 `Duration` 持续时间，有可能让足够多的新的订阅者进入并再次超过连接阀值。
+* `refCount(int, Duration)` 增加了一个 "`宽限期`"。一旦跟踪的订阅者数量太低，它会在断开源之前等待 `Duration` 持续时间，有可能让足够多的新的订阅者进入并再次超过连接阀值。
 
 请看下面的例子：
 
@@ -293,7 +293,7 @@ subscribed to source
 [[advanced-three-sorts-batching]]
 == 三种批处理
 
-当你有很多的元素并且想把它们分批的时候，在Reactor中，你大致有三个解决方案：分组，窗口化和缓冲。这三者概念上接近，因为它们将一个 `Flux<T>` 重新分配到一个集合中。分组和窗口化会创建一个`Flux<Flux<T>>`，而缓冲则将聚合到一个 `Collection<T>`。
+当你有很多的元素并且想把它们分批的时候，在Reactor中，你大致有三个解决方案：分组，窗口化和缓冲。这三者概念上接近，因为它们将一个 `Flux<T>` 重新分配到一个集合中。分组和窗口化会创建一个 `Flux<Flux<T>>`，而缓冲则将聚合到一个 `Collection<T>`。
 
 === 用 `Flux<GroupedFlux<T>>` 分组
 
@@ -319,9 +319,9 @@ subscribed to source
 StepVerifier.create(
 	Flux.just(1, 3, 5, 2, 4, 6, 11, 12, 13)
 		.groupBy(i -> i % 2 == 0 ? "even" : "odd")
-		.concatMap(g -> g.defaultIfEmpty(-1) //if empty groups, show them
-				.map(String::valueOf) //map to string
-				.startWith(g.key())) //start with the group's key
+		.concatMap(g -> g.defaultIfEmpty(-1) //如果是空的组，就显示出来
+				.map(String::valueOf) //映射为字符
+				.startWith(g.key())) //以组的键开始
 	)
 	.expectNext("odd", "1", "3", "5", "11", "13")
 	.expectNext("even", "2", "4", "6", "12")
@@ -348,8 +348,8 @@ WARNING: 分组最适合具有中等到较低组数的情况。还必须强制�
 ----
 StepVerifier.create(
 	Flux.range(1, 10)
-		.window(5, 3) //overlapping windows
-		.concatMap(g -> g.defaultIfEmpty(-1)) //show empty windows as -1
+		.window(5, 3) //重叠窗口
+		.concatMap(g -> g.defaultIfEmpty(-1)) //空窗口显示为-1
 	)
 		.expectNext(1, 2, 3, 4, 5)
 		.expectNext(4, 5, 6, 7, 8)
@@ -371,10 +371,10 @@ StepVerifier.create(
 		.windowWhile(i -> i % 2 == 0)
 		.concatMap(g -> g.defaultIfEmpty(-1))
 	)
-		.expectNext(-1, -1, -1) //respectively triggered by odd 1 3 5
-		.expectNext(2, 4, 6) // triggered by 11
-		.expectNext(12) // triggered by 13
-		// however, no empty completion window is emitted (would contain extra matching elements)
+		.expectNext(-1, -1, -1) //分别触发奇数 1 3 5
+		.expectNext(2, 4, 6) // 11 触发
+		.expectNext(12) // 13 触发
+		// 但是没有发出空的完成窗口（将包含额外的匹配元素）
 		.verifyComplete();
 ----
 ====
@@ -394,7 +394,7 @@ StepVerifier.create(
 ----
 StepVerifier.create(
 	Flux.range(1, 10)
-		.buffer(5, 3) //overlapping buffers
+		.buffer(5, 3) //重叠缓冲区
 	)
 		.expectNext(Arrays.asList(1, 2, 3, 4, 5))
 		.expectNext(Arrays.asList(4, 5, 6, 7, 8))
@@ -413,8 +413,8 @@ StepVerifier.create(
 	Flux.just(1, 3, 5, 2, 4, 6, 11, 12, 13)
 		.bufferWhile(i -> i % 2 == 0)
 	)
-	.expectNext(Arrays.asList(2, 4, 6)) // triggered by 11
-	.expectNext(Collections.singletonList(12)) // triggered by 13
+	.expectNext(Arrays.asList(2, 4, 6)) // 11 触发
+	.expectNext(Collections.singletonList(12)) // 13 触发
 	.verifyComplete();
 ----
 ====
@@ -424,7 +424,7 @@ StepVerifier.create(
 
 如今，随着多核架构变得普遍，能够轻松实现并行化工作很重要。Reactor提供了一种特殊的 `ParallelFlux`，它暴露了为并行化而优化的操作符，从而帮助我们实现了这一点。
 
-要获得一个 `ParallelFlux`，你可以在任何 `Flux` 上使用 `parallel()` 操作符。该方法本身并不会使工作并行化。而是将负载划分为 “`轨道`”（默认情况下，轨道的数量与CPU的核数相同）。
+要获得一个 `ParallelFlux`，你可以在任何 `Flux` 上使用 `parallel()` 操作符。该方法本身并不会使工作并行化。而是将负载划分为 "`轨道`"（默认情况下，轨道的数量与CPU的核数相同）。
 
 为了告诉生成的 `ParallelFlux` 在哪里运行每个轨道（并且，通过扩展，并行化地运行轨道），你必须使用 `runOn(Scheduler)`。注意有一个推荐的专用的 `Scheduler` 用于并行化工作：`Schedulers.parallel()`。
 
@@ -484,13 +484,13 @@ parallel-2 -> 10
 ----
 ====
 
-如果你一旦并行处理你的序列，你想要恢复为“`正常`”的 `Flux`，并按顺序的方式应用其余的操作符链，则可以使用 `ParallelFlux` 上的 `sequential()` 方法。
+如果你一旦并行处理你的序列，你想要恢复为 "`正常`" 的 `Flux`，并按顺序的方式应用其余的操作符链，则可以使用 `ParallelFlux` 上的 `sequential()` 方法。
 
-注意，如果你用一个 `Subscriber` `订阅` `ParallelFlux`，则会隐式的应用 `sequential()`，但当使用基于lambda形式的 `订阅` 则不能。
+注意，如果你用一个 `Subscriber` `subscribe` `ParallelFlux`，则会隐式的应用 `sequential()`，但当使用基于lambda形式的 `subscribe` 则不能。
 
 还要注意的是， `subscribe(Subscriber<T>)` 合并了所有的轨道，而 `subscribe(Consumer<T>)` 运行所有的轨道。如果 `subscribe()` 方法具有lambda，则每个lambda执行的次数与轨道执行的次数相同。
 
-你还可以通过 `groups()` 方法来访问各个轨道或 “`groups`” 作为一个 `Flux<GroupedFlux<T>>`，并通过 `composeGroup()` 方法对其应用其他的操作符。
+你还可以通过 `groups()` 方法来访问各个轨道或 "`groups`" 作为一个 `Flux<GroupedFlux<T>>`，并通过 `composeGroup()` 方法对其应用其他的操作符。
 
 [[scheduler-factory]]
 == 替换默认的 `Schedulers`
@@ -503,13 +503,13 @@ parallel-2 -> 10
 
 可以通过 `Schedulers.Factory` 类来更改默认的调度器。默认情况下，`Factory` 通过类似的名称方法创建所有标准的 `Scheduler`。你可以用你的自定义实现覆盖这些方法。
 
-此外，该工厂还暴露了另一种自定义方法：`decorateExecutorService`。它在 `ScheduledExecutorService`（即使是非默认实例，例如通过调用 `Schedulers.newParallel()`创建的）所支持的每个响应式核心 `Scheduler` 创建过程中调用。
+此外，该工厂还暴露了另一种自定义方法：`decorateExecutorService`。它在 `ScheduledExecutorService`（即使是非默认实例，例如通过调用 `Schedulers.newParallel()` 创建的）所支持的每个响应式核心 `Scheduler` 创建过程中调用。
 
 这允许你调整要使用的 `ScheduledExecutorService`：默认的是暴露为 `Supplier`，并根据所配置的 `Scheduler` 的类型，你可以选择完全绕过该supplier并返回你自己的实例，或可以通过 `get()` 得到默认实例并将其包装。
 
 IMPORTANT: 一旦你创建了满足你需要的 `Factory`，你必须通过调用 `Schedulers.setFactory(Factory)` 来对其进行设置。
 
-最后，在 `Schedulers` 中还有最后一个可定制的钩子：`onHandleError`。每当提交到 `Scheduler` 的 `Runnable` 任务抛出 `Exception`（注意，如果为运行任务的 `线程` 设置了 `UncaughtExceptionHandler` 处理器，则处理器和钩子都会被调用）时调用。
+最后，在 `Schedulers` 中还有最后一个可定制的钩子：`onHandleError`。每当提交到 `Scheduler` 的 `Runnable` 任务抛出 `Exception`（注意，如果为运行任务的 `Thread` 设置了 `UncaughtExceptionHandler` 处理器，则处理器和钩子都会被调用）时调用。
 
 [[hooks]]
 == 使用全局钩子
@@ -547,7 +547,7 @@ Reactor还有另一类可配置的回调，Reactor操作符在各种情况下都
 [[hooks-assembly]]
 === 组装钩子
 
-这些钩子和操作符的生命周期紧密相连。当一个操作符链组装（即实例化）时被调用。`onEachOperator` 通过返回不同的 `Publisher` 允许你动态改变组装在链中的每个操作符。`onLastOperator` 也是类似的，除了仅在链的最后一个操作符即 `订阅` 调用之前被调用。
+这些钩子和操作符的生命周期紧密相连。当一个操作符链组装（即实例化）时被调用。`onEachOperator` 通过返回不同的 `Publisher` 允许你动态改变组装在链中的每个操作符。`onLastOperator` 也是类似的，除了仅在链的最后一个操作符即 `subscribe` 调用之前被调用。
 
 如果你想要用横切 `Subscriber` 实现来装饰所有的操作符，你可以研究一下 `Operators#lift*` 方法，以帮助你处理各种类型的Reactor的 `Publishers`（`Flux`，`Mono`，`ParallelFlux`，`GroupedFlux` 和 `ConnectableFlux`），以及它们的 `Fuseable` 版本。
 
@@ -559,7 +559,7 @@ Reactor还有另一类可配置的回调，Reactor操作符在各种情况下都
 
 * `onNextDroppedFail()`：`onNextDropped` 用于抛出一个 `Exceptions.failWithCancel()` 异常。它现在默认记录在调试级别删除的值。要回到以前的默认抛出行为，使用 `onNextDroppedFail()`。
 
-* `onOperatorDebug()`：此方法会激活 <<debug-activate,debug mode>>。它与 `onOperatorError` 钩子紧密相连，因此调用 `resetOnOperatorError()` 也能重置它。因为它在内部使用了一个特定的键，你也可以通过使用  `resetOnOperatorDebug()` 单独重置它。
+* `onOperatorDebug()`：此方法会激活 <<debug-activate,调试模式>>。它与 `onOperatorError` 钩子紧密相连，因此调用 `resetOnOperatorError()` 也能重置它。因为它在内部使用了一个特定的键，你也可以通过使用  `resetOnOperatorDebug()` 单独重置它。
 
 
 [[context]]
@@ -569,7 +569,7 @@ Reactor还有另一类可配置的回调，Reactor操作符在各种情况下都
 
 与你可能习惯的命令式编程相反，在响应式编程中，你可以使用 `Thread` 处理几个大致同时（实际上，在非阻塞的锁步）运行的异步序列。执行也可以很容易且经常从一个线程跳到另一个线程。
 
-这种约定对于使用依赖于线程模型使得更 `稳定` 的特性的开发者相当困难，例如 `ThreadLocal`。因为它可以让你把数据与线程关联起来，但在响应式上下文中使用它就变得很棘手。因此，依赖于 `ThreadLocal` 的库与Reactor一起使用时，至少带来了新的挑战。最糟糕的是，它们不能工作或者甚至失败。使用Logback的MDC来存储并记录日志相关性ID就是这种情况的一个典型例子。
+这种约定对于使用依赖于线程模型使得更 "`稳定`" 的特性的开发者相当困难，例如 `ThreadLocal`。因为它可以让你把数据与线程关联起来，但在响应式上下文中使用它就变得很棘手。因此，依赖于 `ThreadLocal` 的库与Reactor一起使用时，至少带来了新的挑战。最糟糕的是，它们不能工作或者甚至失败。使用Logback的MDC来存储并记录日志相关性ID就是这种情况的一个典型例子。
 
 使用 `ThreadLocal` 的通常解决方法是通过使用（例如） `Tuple2<T, C>` 按顺序将上下文的数据 `C` 沿业务数据 `T` 移动。这确实看起来不好，并且将正交关系（上下文数据）泄露到方法和 `Flux` 签名中。
 
@@ -703,7 +703,7 @@ StepVerifier.create(r)
 <2> 在 `map` 中，我们试图将其转换
 <3> 我们在 `flatMap` 中重新实现了 `Context`
 <4> 我们尝试在 `Context` 中读取键
-<5> 键的值没有设为 `Hello`
+<5> 键的值没有设为 `"Hello"`
 ====
 
 同样，在多次尝试将同一个键写入 `Context` 的情况下，写入的相对顺序也很重要。读取 `Context` 的操作符会看到最接近它们设置的值，如下例所示：
@@ -727,7 +727,7 @@ StepVerifier.create(r)
 <3> `map` 只看到了最接近它（在它下面）设置的值：`"Reactor"`。
 ====
 
-在前面的例子中，`Context` 在订阅期间被填充了 `World`。然后订阅信号向上移动，另一个写操作发生了。这就产生了第二个不可变的 `Context`，其值为 `"Reactor"`。之后，数据开始流动。`flatMap` 看到离他最近的 `Context`，也就是我们的第二个 `Context`，其值为 `"Reactor"`。
+在前面的例子中，`Context` 在订阅期间被填充了 `"World"`。然后订阅信号向上移动，另一个写操作发生了。这就产生了第二个不可变的 `Context`，其值为 `"Reactor"`。之后，数据开始流动。`flatMap` 看到离他最近的 `Context`，也就是我们的第二个 `Context`，其值为 `"Reactor"`。
 
 你可能会想知道，`Context` 是否会随着数据信号一起传播。如果是那种情况下的话，再在这两个写操作之间放置另一个 `flatMap`，那么就会使用最上面的 `Context`。但事实并未如此，下面的例子就证明了这一点：
 
@@ -880,36 +880,21 @@ public void contextForLibraryReactivePut() {
 IMPORTANT: 为了便于清理，*所有这些钩子必须是幂等的*。在某些情况下，它们可能会被多次应用于同一对象。与执行类级别 `instanceOf` 检测的 `doOnDiscard` 操作符不同，全局的钩子处理的实例可以是任何 `Object`。区分哪些实例需要清理和不需要清理，取决于用户的实现。
 
 
-=== The `doOnDiscard` Operator or Local Hook
 === `doOnDiscard` 操作符 或者本地钩子
 
-This hook has been specifically put in place for cleanup of objects that would otherwise never be exposed to user code.
-It is intended as a cleanup hook for flows that operate under normal circumstances (not malformed sources that push too many items, which is covered by `onNextDropped`).
-该钩子专门用于清理对象，否则这些对象将永远不会暴露给用户代码。它旨在用作在正常情况下（不是推送很多元素且被 `onNextDropped` 覆盖的错误的源）运行流的清理钩子。
+该钩子专门用于清理那些永远不会被用户代码暴露的对象。它旨在用于在正常情况下运行的流（而不是推送很多元素且被 `onNextDropped` 覆盖的错误的源）的清理钩子。
 
-It is local, in the sense that it is activated through an operator and applies only to a given `Flux` or `Mono`.
-它是本地的，从某种意义上说它是通过操作符激活的，并且仅应用与给定的 `Flux` 或者 `Mono`。
+它是局部的，即它是通过操作符激活的，并且仅应用于给定的 `Flux` 或者 `Mono`。
 
-Obvious cases include operators that filter elements from upstream.
-These elements never reach the next operator (or final subscriber), but this is part of the normal path of execution.
-As such, they are passed to the `doOnDiscard` hook.
-Examples of when you might use the `doOnDiscard` hook include the following:
-明显的例子包括从上游过滤元素的操作符。这些元素永远不会到达下一个操作符（或者最终订阅者），但这是正常执行途经的一部分。因此，它们被传递到 `doOnDiscard` 钩子。何时可以使用 `doOnDiscard` 钩子的示例包括：
+很明显的情况包括从上游过滤元素的操作符。这些元素永远不会到达下一个操作符（或最终订阅者），但这是正常执行途经的一部分。因此，它们被传递到 `doOnDiscard` 钩子。你可能使用 `doOnDiscard` 钩子的例子包括以下情况：
 
-* `filter`: Items that do not match the filter are considered to be "`discarded.`"
-* `filter`： 与过滤器不匹配的项被视为 “`已丢弃`”。
-* `skip`: Skipped items are discarded.
+* `filter`： 不符合过滤器的项被视为 "`丢弃`"。
 * `skip`：跳过的项将被丢弃。
-* `buffer(maxSize, skip)` with `maxSize < skip`: A "`dropping buffer`" -- items in between buffers are discarded.
-* `buffer(maxSize, skip)` 与 `maxSize < skip`：“`删除的缓冲区`” -- 丢弃缓冲区之间的元素。
+* `buffer(maxSize, skip)` 与 `maxSize < skip`："`丢弃的缓冲区`" -- 缓冲区之间的元素被丢弃。
 
-But `doOnDiscard` is not limited to filtering operators, and is also used by operators that internally queue data for backpressure purposes.
-More specifically, most of the time, this is important during cancellation. An operator that prefetches data from its source and later drains to its subscriber upon demand could have un-emitted data when it gets cancelled.
-Such operators use the `doOnDiscard` hook during cancellation to clear up their internal backpressure `Queue`.
-但 `doOnDiscard` 不仅局限于过滤操作符，而且还被用于在内部对数据进行排队以达到背压目的的操作符。更具体地说，在大多数情况下，这在取消时很重要。从源中预先提取数据，然后按需发布到订阅者的操作符可能在被取消时还未发出数据。这样的操作符使用 `doOnDiscard` 钩子在取消时清理它们内部的背压 `队列`。
+但 `doOnDiscard` 并不局限于过滤操作符，而且还被用于在内部对数据进行排队以达到背压目的的操作符。更具体地说，在大多数情况下，这在取消过程中很重要。从源中预先提取数据，然后按需发布到订阅者的操作符可能在被取消时还未发出数据。这样的操作符使用 `doOnDiscard` 钩子在取消时清理它们内部的背压 `队列`。
 
-WARNING: Each call to `doOnDiscard(Class, Consumer)` is additive with the others, to the extent that it is visible and used by only operators upstream of it.
-WARNING: 每次调用 `doOnDiscard(Class, Consumer)` 都会和其它操作符一起，以使其只能被其上游的操作符看到并使用。
+WARNING: `doOnDiscard(Class, Consumer)` 的每次调用都是与其它操作符一起的，以使其只能被其上游的操作符看到并使用。
 
 === `onOperatorError` 钩子
 
