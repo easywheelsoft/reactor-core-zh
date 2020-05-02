@@ -62,6 +62,7 @@ dependencies {
 
 从3.2.0开始，这些工具集提供的最高级的重试策略之一也是 `reactor-core` 主要模块的一部分。`Flux#retryBackoff` 操作符可作为指数退避来使用。
 
+从3.3.4开始，`Retry` 构建器直接在core中提供，并且有了更多的可能的定制，基于一个封装了错误之外的额外状态的 `RetrySignal`。
 
 [[extra-schedulers]]
 == 调度器

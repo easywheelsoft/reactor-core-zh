@@ -223,9 +223,9 @@ TIP: 在本节中，如果一个操作符是针对 `Flux` 或 `Mono`，它会相
 ** 通过回退：
 *** 回退到某个值：`onErrorReturn`
 *** 回退到 `Publisher` 或 `Mono`，取决于错误的不同：`Flux#onErrorResume` 和 `Mono#onErrorResume`
-** 通过重试：`retry`
+** 简单策略（最大尝试次数）：`retry`，`retry(long)`
 *** ...由伴随的Flux触发：`retryWhen`
-*** ...使用标准的回退策略（带抖动的指数退避）：`retryBackoff`
+*** ...使用标准的回退策略（带抖动的指数退避）：`retryWhen(Retry.backoff(...))`（另见 `Retry` 中的其他工厂方法）
 
 * 我想处理背压 "错误"（从上游请求最大请求量，并在下游没有产生足够多请求时应用该策略）...
 ** 通过抛出一个特殊的 `IllegalStateException`：`Flux#onBackpressureError`

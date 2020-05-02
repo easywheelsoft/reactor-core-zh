@@ -147,29 +147,30 @@ include::snippetRetryWhenRetry.adoc[]
 
 指数退避会产生重新尝试，每次尝试之间的延迟会越来越长，这样就不会使源系统过载，也不会有全面崩溃的风险。理由是，如果源产生错误，它已经处于一个不稳定的状态，不太可能立即从错误中恢复过来。因此，盲目的立即重试可能会产生另一个错误，增加不稳定因素。
 
-自从 `3.2.0.RELEASE` 之后，Reactor自带了这样一个重试的功能：`Flux.retryBackoff`。
+自从 `3.3.4.RELEASE` 之后，Reactor自带了一个用于重试的构建器，可与 `Flux#retryWhen` 一起使用：`Retry.backoff`。
 
-下面的例子演示了如何使用 `retryWhen` 实现指数退避。它可以延迟重试并增加每次尝试之间的延迟（伪代码：延迟 = 尝试次数 * 100毫秒）：
+下面的例子演示了一个简单的构建器的使用，在重试尝试延迟前后的钩子记录消息。它可以延迟重试并增加每次尝试之间的延迟（伪代码：延迟 = 尝试次数 * 100毫秒）：
 
 ====
 [source,java]
 ----
+AtomicInteger errorCount = new AtomicInteger();
 Flux<String> flux =
-Flux.<String>error(new IllegalArgumentException())
-    .retryWhen(companion -> companion
-        .doOnNext(s -> System.out.println(s + " at " + LocalTime.now())) // <1>
-        .zipWith(Flux.range(1, 4), (error, index) -> { // <2>
-          if (index < 4) return index;
-          else throw Exceptions.propagate(error);
-        })
-        .flatMap(index -> Mono.delay(Duration.ofMillis(index * 100))) // <3>
-        .doOnNext(s -> System.out.println("retried at " + LocalTime.now())) // <4>
-    );
+Flux.<String>error(new IllegalStateException("boom"))
+		.doOnError(e -> { // <1>
+			errorCount.incrementAndGet();
+			System.out.println(e + " at " + LocalTime.now());
+		})
+		.retryWhen(Retry
+				.backoff(3, Duration.ofMillis(100)).jitter(0d) // <2>
+				.doAfterRetry(rs -> System.out.println("retried at " + LocalTime.now())) // <3>
+				.onRetryExhaustedThrow((spec, rs) -> rs.failure()) // <4>
+		);
 ----
-<1> 我们记录错误发生的时间。
-<2> 我们使用 `retryWhen` + `zipWith` 技巧在三次重试后传播错误。
-<3> 通过 `flatMap`，我们根据尝试的索引造成延迟。
-<4> 我们还记录了重试发生的时间。
+<1> 我们将记录源发出的错误时间，并对其进行统计。
+<2> 我们配置了一个指数退避重试，最多尝试3次，没有抖动。
+<3> 我们还记录了重试发生的时间。
+<4> 默认情况下，会抛出一个 `Exceptions.retryExhausted` 异常，最后一个 `failure()` 作为失败原因。这里我们将其自定义为直接以 `onError` 的形式发出原因。
 ====
 
 订阅后，它将失败并在打印出以下内容后终止：

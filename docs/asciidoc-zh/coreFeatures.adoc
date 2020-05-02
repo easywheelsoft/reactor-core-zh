@@ -717,9 +717,11 @@ java.lang.RuntimeException: boom
 
 `retry`（称为 `retryWhen`）有一个更高级的版本，使用伴随的 `Flux` 来告知是否应重试特定的故障。为了便于自定义retry的条件，这个伴随的 `Flux` 被操作符创建但是是由用户自己组装的。
 
-伴随的 `Flux` 是一个 `Flux<Throwable>` ，它被传递给一个 `Function`，且作为 `retryWhen` 的唯一的参数。作为用户，你定义该函数并使其返回新的 `Publisher<?>`。重试周期如下：
+伴随的 `Flux` 是一个 `Flux<RetrySignal>` ，它被传递给一个 `Retry` 策略/函数，且作为 `retryWhen` 的唯一的参数提供。作为用户，你定义该函数并使其返回新的 `Publisher<?>`。`Retry` 类是一个抽象类，但如果你想用一个简单的lambda（`Retry.from(Function)`）来转换伴随的对象，它提供了一个工厂方法。
 
-. 每次发生错误时（提供重试的可能性），错误都会被发送到伴随的 `Flux` 中，而这个 `Flux` 已经被你的函数装饰过了。这里的 `Flux` 可以看到目前为止所有的尝试。
+重试周期如下：
+
+. 每次发生错误时（提供重试的可能性），`RetrySignal` 都会被发送到伴随的 `Flux` 中，而这个 `Flux` 已经被你的函数装饰过了。这里的 `Flux` 可以看到目前为止所有的尝试。`RetrySignal` 提供了对错误的访问，以及围绕错误的元数据。
 . 如果伴随的 `Flux` 产生一个值，则会发生重试。
 . 如果伴随的 `Flux` 完成，则错误被吞掉，重试循环停止，结果序列也完成。
 . 如果伴随的 `Flux` 产生一个错误（`e`），重试周期停止并产生带有错误（`e`）的序列。
@@ -732,11 +734,13 @@ java.lang.RuntimeException: boom
 Flux<String> flux = Flux
     .<String>error(new IllegalArgumentException()) // <1>
     .doOnError(System.out::println) // <2>
-    .retryWhen(companion -> companion.take(3)); // <3>
+    .retryWhen(Retry.from(companion -> // <3>
+        companion.take(3))); // <4>
 ----
 <1> 这会不断产生错误，调用重试。
 <2> `doOnError` 可以让我们能够在重试之前记录和看到所有的失败。
-<3> 这里，我们认为前三个错误是可以重试的 (`take(3)`)，然后放弃。
+<3> `Retry` 改编自一个非常简单的 `Function` lambda
+<4> 这里，我们认为前三个错误是可以重试的（`take(3)`），然后放弃。
 ====
 
 实际上，前面的例子产生一个空的 `Flux`，但是它成功地完成了。由于在同一个 `Flux` 上地 `retry(3)` 会以最近的错误终止，所以这个 `retryWhen` 例子与 `retry(3)` 不完全相同。
@@ -744,7 +748,57 @@ Flux<String> flux = Flux
 要想达到同样的行为，还需要一些额外的技巧：
 include::snippetRetryWhenRetry.adoc[]
 
-TIP: 你可以用类似的代码来实现 “`幂等补偿和重试`” 模式，如<<faq.exponentialBackoff,FAQ>>中所示：
+TIP: 人们可以用 `Retry` 中暴露的构建器来实现同样的功能，也可以使用更流畅的重试策略。例如：`errorFlux.retryWhen(Retry.max(3));`。
+
+TIP: 你可以用类似的代码来实现 "`幂等补偿和重试`" 模式，如<<faq.exponentialBackoff,FAQ>>中所示：
+
+core提供的 `Retry` 辅助工具，`RetrySpec` 和 `RetryBackoffSpec`，都允许进行高级定制，如：
+
+- 为可以触发重试的异常设置 `filter(Predicate)`
+- 通过 `modifyErrorFilter(Function)` 修改这样一个先前设置的过滤器
+- 触发重试触发器（即延时前后的回退）等副作用，只要重试有效（`doBeforeRetry()` 和 `doAfterRetry()` 是附加的）
+- 在重试触发器周围触发一个异步的 `Mono<Void>`，它允许在基本的延迟的基础上添加异步行为，从而进一步延迟触发器（`doBeforeRetryAsync` 和 `doAfterRetryAsync` 是附加的）
+- 在达到最大尝试次数的情况下，通过 `onRetryExhaustedThrow(BiFunction)` 自定义异常。默认情况下，使用了 `Exceptions.retryExhausted(...)`，可以通过 `Exceptions.isRetryExhausted(Throwable)` 来区分。
+- 激活处理 _瞬时错误_ (见下文)
+
+`Retry` 规范中的瞬时错误处理使用 `RetrySignal#totalRetriesInARow()`：为了检查是否重试和计算重试延迟，每次发出 `onNext` 时，使用的索引是一个替代索引且被重置为0。
+这样做的后果是，如果重新订阅的数据源在再次失败之前产生了一些数据，那么之前的失败将不计入最大的重试次数。
+在指数退避策略的情况下，这也意味着下一次的尝试将回到最小的 `Duration` 退避，而不是更长的时间。
+这对于生存比较久的源来说尤其有用，因为这些源看到的是零星的错误突发（或 _瞬时_ 错误），每次突发都应该用自己的回退来重试。
+
+====
+[source,java]
+----
+AtomicInteger errorCount = new AtomicInteger(); // <1>
+AtomicInteger transientHelper = new AtomicInteger();
+Flux<Integer> transientFlux = Flux.<Integer>generate(sink -> {
+	int i = transientHelper.getAndIncrement();
+	if (i == 10) { // <2>
+		sink.next(i);
+		sink.complete();
+	}
+	else if (i % 3 == 0) { // <3>
+		sink.next(i);
+	}
+	else {
+		sink.error(new IllegalStateException("Transient error at " + i)); // <4>
+	}
+})
+		.doOnError(e -> errorCount.incrementAndGet());
+
+transientFlux.retryWhen(Retry.max(2).transientErrors(true))  // <5>
+             .blockLast();
+assertThat(errorCount).hasValue(6); // <6>
+----
+<1> 我们将统计重试序列中的错误数量。
+<2> 我们 `generate` 一个有突发错误的源。当计数器达到10时，它将成功完成。
+<3> 如果 `transientHelper` 原子变量是 `3` 的倍数时，我们就会发出 `onNext`，从而结束当前的突发错误。
+<4> 在其他情况下，我们会发出一个 `onError`。这就是3次中的两次，所以2个 `onError` 突发错误中断了1个 `onNext`。
+<5> 我们在该源上使用 `retryWhen`，配置最多为2次重试，但是以 `transientErrors` 模式。
+<6> 在结束时，在 `errorCount` 中登记了 `6` 个错误后，序列到达 `onNext(10)` 并完成。
+====
+
+如果没有 `transientErrors(true)`，在第二次突发错误时，将达到配置的最大尝试数 `2`，并且在发出 `onNext(3)` 后，序列将失败。
 
 === 处理操作符或者函数中的异常
 

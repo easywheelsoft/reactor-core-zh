@@ -313,6 +313,87 @@ WARNING: 请注意，由于需要迭代所有加载的类并应用转换，重�
 === 局限性
 `ReactorDebugAgent` 作为一个Java代理实现，并使用 https://bytebuddy.net/#/[ByteBuddy] 执行自我附加。自我附加可能不适用某些JVM，请参考ByteBuddy的文档获取更多详细信息。
 
+=== 作为Java代理运行ReactorDebugAgent
+如果你的环境不支持ByteBuddy的自我附加，你可以将 `reactor-tools` 作为Java代理运行：
+====
+[source,shell]
+----
+java -javaagent reactor-tools.jar -jar app.jar
+----
+====
+
+=== 在构建时运行ReactorDebugAgent
+也可以在构建时运行 `reactor-tools`，要做到这一点，你需要将其作为ByteBuddy的构建工具的插件来使用。
+
+WARNING: 该转换将只应用于你的项目的类，类路径下的库并不会被增强。
+
+.reactor-tools 和 https://github.com/raphw/byte-buddy/tree/byte-buddy-1.10.9/byte-buddy-maven-plugin[ByteBuddy的Maven插件]
+====
+[source,xml]
+----
+<dependencies>
+	<dependency>
+		<groupId>io.projectreactor</groupId>
+		<artifactId>reactor-tools</artifactId>
+		<1>
+		<classifier>original</classifier> <2>
+		<scope>runtime</scope>
+	</dependency>
+</dependencies>
+
+<build>
+	<plugins>
+		<plugin>
+			<groupId>net.bytebuddy</groupId>
+			<artifactId>byte-buddy-maven-plugin</artifactId>
+			<configuration>
+				<transformations>
+					<transformation>
+						<plugin>reactor.tools.agent.ReactorDebugByteBuddyPlugin</plugin>
+					</transformation>
+				</transformations>
+			</configuration>
+		</plugin>
+	</plugins>
+</build>
+----
+<1> 如果你使用了<<getting,BOM>>，你不需要指定 `<version>`。
+<2> 这里的 `classifier` 很重要。
+====
+
+.reactor-tools 和 https://github.com/raphw/byte-buddy/tree/byte-buddy-1.10.9/byte-buddy-gradle-plugin[ByteBuddy的Gradle插件]
+====
+[source,groovy]
+----
+plugins {
+	id 'net.bytebuddy.byte-buddy-gradle-plugin' version '1.10.9'
+}
+
+configurations {
+	byteBuddyPlugin
+}
+
+dependencies {
+	byteBuddyPlugin(
+			group: 'io.projectreactor',
+			name: 'reactor-tools',
+			<1>
+			classifier: 'original', <2>
+	)
+}
+
+byteBuddy {
+	transformation {
+		plugin = "reactor.tools.agent.ReactorDebugByteBuddyPlugin"
+		classPath = configurations.byteBuddyPlugin
+	}
+}
+----
+<1> 如果你使用了<<getting,BOM>>，你不需要指定 `<version>`。
+<2> 这里的 `classifier` 很重要。
+====
+
+
 == 记录序列
 
 除了堆栈追踪调试和分析之外，在工具包中有另外一个强大的工具是在异步序列中追踪和记录事件的能力。
